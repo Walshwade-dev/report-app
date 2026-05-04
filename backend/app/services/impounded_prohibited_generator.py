@@ -107,19 +107,7 @@ def style_cell(
             run.bold = bold
 
 
-def generate_impounded_prohibited_report(
-    df: pd.DataFrame,
-    report_date: str,
-    station: str,
-    bound: str,
-) -> io.BytesIO:
-    doc = Document()
-    apply_standard_layout(
-        doc,
-        report_date=report_date,
-        station=station,
-        bound=bound,
-    )
+def add_impounded_prohibited_section(doc: Document, df: pd.DataFrame):
 
     heading = doc.add_paragraph()
     run = heading.add_run("6. IMPOUNDED & PROHIBITED")
@@ -166,8 +154,26 @@ def generate_impounded_prohibited_report(
                 cell,
                 font_size=7,
             )
+            
+        apply_widths_to_all_cells(table, columns, widths)
 
-    apply_widths_to_all_cells(table, columns, widths)
+def generate_impounded_prohibited_report(
+    df: pd.DataFrame,
+    report_date: str,
+    station: str,
+    bound: str,
+) -> io.BytesIO:
+    
+    doc = Document()
+
+    apply_standard_layout(
+        doc,
+        report_date=report_date,
+        station=station,
+        bound=bound,
+    )
+
+    add_impounded_prohibited_section(doc, df)
 
     buffer = io.BytesIO()
     doc.save(buffer)

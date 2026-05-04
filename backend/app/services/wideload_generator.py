@@ -116,20 +116,7 @@ def style_cell(
             run.bold = bold
 
 
-def generate_wideload_report(
-    df: pd.DataFrame,
-    report_date: str,
-    station: str,
-    bound: str,
-) -> io.BytesIO:
-    doc = Document()
-    apply_standard_layout(
-    doc,
-    report_date=report_date,
-    station=station,
-    bound=bound,
-)
-
+def add_wideload_section(doc: Document, df: pd.DataFrame):
     heading = doc.add_paragraph()
     run = heading.add_run("7. VEHICLE INSPECTION REPORT (WIDE LOADS)")
     run.bold = True
@@ -183,6 +170,23 @@ def generate_wideload_report(
             )
 
     apply_widths_to_all_cells(table, columns, widths)
+
+def generate_wideload_report(
+    df: pd.DataFrame,
+    report_date: str,
+    station: str,
+    bound: str,
+) -> io.BytesIO:
+    doc = Document()
+
+    apply_standard_layout(
+        doc,
+        report_date=report_date,
+        station=station,
+        bound=bound,
+    )
+
+    add_wideload_section(doc, df)
 
     buffer = io.BytesIO()
     doc.save(buffer)
