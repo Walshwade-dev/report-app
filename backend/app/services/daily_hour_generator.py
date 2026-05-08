@@ -8,8 +8,36 @@ from docx.enum.table import (
 from docx.shared import Inches, Pt
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-
+from app.services.report_layout import (
+    FONT_NAME,
+    SECTION_TITLE_SIZE,
+    SUBHEADING_SIZE,
+    TABLE_HEADER_SIZE,
+    TABLE_BODY_SIZE,
+)
 import pandas as pd
+
+from app.services.report_layout import A4_TABLE_WIDTH_TWIPS
+
+
+SAMPLE_COLUMN_WIDTHS = [
+    1096,
+    988,
+    1078,
+    899,
+    899,
+    899,
+    934,
+    965,
+    810,
+    810,
+    1170,
+    900,
+    1080,
+    900,
+    884,
+    1096,
+]
 
 
 HEADER_LABELS = {
@@ -41,7 +69,10 @@ COLUMN_RATIOS = {
 }
 
 
-def get_column_widths(columns, total_width=16200):
+def get_column_widths(columns, total_width=A4_TABLE_WIDTH_TWIPS):
+    if len(columns) == len(SAMPLE_COLUMN_WIDTHS):
+        return {col: SAMPLE_COLUMN_WIDTHS[index] for index, col in enumerate(columns)}
+
     total_ratio = sum(COLUMN_RATIOS.get(col, 1) for col in columns)
     base_width = total_width / total_ratio
 
@@ -99,7 +130,7 @@ def apply_widths_to_all_cells(table, columns, widths):
 
 def style_cell(
     cell,
-    font_size=6,
+    font_size=10,
     bold=False,
     align=WD_ALIGN_PARAGRAPH.CENTER,
 ):
@@ -125,13 +156,15 @@ def style_cell(
 
 def add_daily_hour_statistics_section(doc: Document, daily_df: pd.DataFrame):
     heading = doc.add_paragraph()
-    run = heading.add_run("1.  DAILY AND HOURLY STATISTICS")
+    heading.paragraph_format.space_before = Pt(0)
+    heading.paragraph_format.space_after = Pt(0)
+    run = heading.add_run("1. DAILY AND HOURLY STATISTICS")
     run.bold = True
     run.font.name = "Arial"
-    run.font.size = Pt(8)
+    run.font.size = Pt(11)
 
     columns = list(daily_df.columns)
-    widths = get_column_widths(columns, total_width=15800)
+    widths = get_column_widths(columns)
 
     table = doc.add_table(rows=3, cols=len(columns))
     table.style = "Table Grid"
@@ -146,17 +179,13 @@ def add_daily_hour_statistics_section(doc: Document, daily_df: pd.DataFrame):
     row2 = table.rows[1]
     row3 = table.rows[2]
 
-    row1.height = Inches(0.35)
-    row2.height = Inches(0.28)
-    row3.height = Inches(0.22)
+    row1.height = Pt(13.1)
+    row2.height = Pt(29.1)
+    row3.height = Pt(22.85)
 
-    row1.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
-    row2.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
-    row3.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
-
-    for r in [row1, row2, row3]:
-        r.height = Inches(0.23)
-        r.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
+    row1.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
+    row2.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
+    row3.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
 
     # vertical merges for DATE/TIME
     row1.cells[0].merge(row3.cells[0])
@@ -224,16 +253,13 @@ def add_daily_hour_statistics_section(doc: Document, daily_df: pd.DataFrame):
     # style headers
     for row in [row1, row2, row3]:
         for cell in row.cells:
-            style_cell(cell, font_size=6.2, bold=True)
+            style_cell(cell, font_size=7, bold=True)
 
     # data rows INCLUDING totals row
     for _, row in daily_df.iterrows():
         row_obj = table.add_row()
-        row_obj.height = Inches(0.20)
-        row_obj.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
-
-        for r in [row1, row2, row3]:
-            r.height = Inches(0.25)
+        row_obj.height = Pt(7.2)
+        row_obj.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
 
 
         is_total_row = str(row.get("DATE", "")).strip().lower() == "totals"
@@ -249,7 +275,8 @@ def add_daily_hour_statistics_section(doc: Document, daily_df: pd.DataFrame):
                 text = str(value)
 
             cell.text = text
-            style_cell(cell, font_size=6.6, bold=is_total_row)
+            font_size = 8 if i in {0, 1} else 11
+            style_cell(cell, font_size=font_size, bold=is_total_row)
 
     apply_widths_to_all_cells(table, columns, widths)
     

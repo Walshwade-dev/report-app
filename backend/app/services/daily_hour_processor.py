@@ -1,4 +1,5 @@
 import pandas as pd
+import math
 import random
 
 REQUIRED_COLUMNS = {
@@ -53,38 +54,42 @@ def extract_daily_hour_core(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def distribute_wideloads(wideload_count: int) -> list[int]:
-    """
-    Distribute wideload count between 0600-1800 only.
-    Heavier allocation earlier, lighter toward evening.
-    """
-
     values = [0] * 24
 
-    allowed_indexes = list(range(6, 18))  # 0600-0700 to 1700-1800
+    if wideload_count <= 0:
+        return values
 
-    weights = [
-        12, 12, 11, 10, 9, 8,
-        7, 6, 5, 4, 3, 2
-    ]
+    allowed_indexes = list(range(6, 18))
+    rng = random.SystemRandom()
+    rng.shuffle(allowed_indexes)
+    weights = {hour_index: rng.randint(1, 12) for hour_index in allowed_indexes}
+    base_count = wideload_count // len(allowed_indexes)
 
-    total_weight = sum(weights)
+    if base_count:
+        for hour_index in allowed_indexes:
+            values[hour_index] = base_count
 
-    allocation = [
-        int((wideload_count * weight) / total_weight)
-        for weight in weights
-    ]
+    remaining_count = wideload_count - (base_count * len(allowed_indexes))
+    max_per_hour = max(base_count + 1, math.ceil((wideload_count / len(allowed_indexes)) * 2))
 
-    remainder = wideload_count - sum(allocation)
+    for _ in range(remaining_count):
+        available_indexes = [
+            hour_index
+            for hour_index in allowed_indexes
+            if values[hour_index] < max_per_hour
+        ]
 
-    for _ in range(remainder):
-        idx = random.choices(range(len(allowed_indexes)), weights=weights, k=1)[0]
-        allocation[idx] += 1
+        if not available_indexes:
+            available_indexes = allowed_indexes
 
-    for i, hour_index in enumerate(allowed_indexes):
-        values[hour_index] = allocation[i]
+        chosen_index = rng.choices(
+            available_indexes,
+            weights=[weights[hour_index] for hour_index in available_indexes],
+            k=1,
+        )[0]
+        values[chosen_index] += 1
 
     return values
-
 
 def build_daily_hour_metrics(
     df: pd.DataFrame,
