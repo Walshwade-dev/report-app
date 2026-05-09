@@ -3,5 +3,6 @@ services:
     name: report-app
     runtime: python
     branch: main
+    rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: cd backend && MPLCONFIGDIR=/tmp/matplotlib uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: MPLCONFIGDIR=/tmp/matplotlib uvicorn app.main:app --host 0.0.0.0 --port $PORT
