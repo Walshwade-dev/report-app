@@ -1,8 +1,7 @@
 services:
   - type: web
     name: report-app
-    runtime: python
+    runtime: docker
     branch: main
     rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: MPLCONFIGDIR=/tmp/matplotlib uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
