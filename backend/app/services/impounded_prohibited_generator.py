@@ -9,7 +9,7 @@ from docx.shared import Inches, Pt
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
-from app.services.report_layout import apply_standard_layout
+from app.services.report_layout import A4_TABLE_WIDTH_TWIPS, apply_standard_layout
 
 import io
 import pandas as pd
@@ -35,7 +35,11 @@ COLUMN_RATIOS = {
 }
 
 
-def get_column_widths(columns, total_width=16200):
+def get_column_widths(columns, total_width=A4_TABLE_WIDTH_TWIPS):
+    sample_widths = [1279, 1254, 1113, 835, 1669, 1116, 1255, 976, 696, 2229, 1206, 1492]
+    if len(columns) == len(sample_widths):
+        return {col: sample_widths[index] for index, col in enumerate(columns)}
+
     total_ratio = sum(COLUMN_RATIOS.get(col, 1) for col in columns)
     base_width = total_width / total_ratio
 
@@ -103,29 +107,21 @@ def style_cell(
     for paragraph in cell.paragraphs:
         paragraph.alignment = align
         for run in paragraph.runs:
+            run.font.name = "Arial"
             run.font.size = Pt(font_size)
             run.bold = bold
 
 
-def generate_impounded_prohibited_report(
-    df: pd.DataFrame,
-    report_date: str,
-    station: str,
-    bound: str,
-) -> io.BytesIO:
-    doc = Document()
-    apply_standard_layout(
-        doc,
-        report_date=report_date,
-        station=station,
-        bound=bound,
-    )
+def add_impounded_prohibited_section(doc: Document, df: pd.DataFrame):
 
     heading = doc.add_paragraph()
+    heading.paragraph_format.space_before = Pt(8)
+    heading.paragraph_format.space_after = Pt(0)
     run = heading.add_run("6. IMPOUNDED & PROHIBITED")
     run.bold = True
     run.underline = True
-    run.font.size = Pt(10)
+    run.font.name = "Arial"
+    run.font.size = Pt(11)
 
     columns = list(df.columns)
     widths = get_column_widths(columns)
@@ -140,8 +136,8 @@ def generate_impounded_prohibited_report(
     set_table_grid(table, columns, widths)
 
     header_row = table.rows[0]
-    header_row.height = Inches(0.35)
-    header_row.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
+    header_row.height = Pt(1.2)
+    header_row.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
 
     for i, col in enumerate(columns):
         cell = header_row.cells[i]
@@ -149,14 +145,14 @@ def generate_impounded_prohibited_report(
 
         style_cell(
             cell,
-            font_size=6,
+            font_size=8,
             bold=True,
         )
 
     for _, row in df.iterrows():
         row_obj = table.add_row()
-        row_obj.height = Inches(0.55)
-        row_obj.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
+        row_obj.height = Pt(56.7)
+        row_obj.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
 
         for i, value in enumerate(row):
             cell = row_obj.cells[i]
@@ -164,10 +160,28 @@ def generate_impounded_prohibited_report(
 
             style_cell(
                 cell,
-                font_size=7,
+                font_size=10,
             )
+            
+        apply_widths_to_all_cells(table, columns, widths)
 
-    apply_widths_to_all_cells(table, columns, widths)
+def generate_impounded_prohibited_report(
+    df: pd.DataFrame,
+    report_date: str,
+    station: str,
+    bound: str,
+) -> io.BytesIO:
+    
+    doc = Document()
+
+    apply_standard_layout(
+        doc,
+        report_date=report_date,
+        station=station,
+        bound=bound,
+    )
+
+    add_impounded_prohibited_section(doc, df)
 
     buffer = io.BytesIO()
     doc.save(buffer)

@@ -8,7 +8,7 @@ from docx.enum.table import (
 from docx.shared import Inches, Pt
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from app.services.report_layout import apply_standard_layout
+from app.services.report_layout import A4_TABLE_WIDTH_TWIPS, apply_standard_layout
 
 import io
 import pandas as pd
@@ -29,7 +29,7 @@ COLUMN_RATIOS = {
 }
 
 
-def get_column_widths(columns, total_width=16200):
+def get_column_widths(columns, total_width=A4_TABLE_WIDTH_TWIPS):
     total_ratio = sum(COLUMN_RATIOS.get(col, 1) for col in columns)
     base_width = total_width / total_ratio
 
@@ -112,29 +112,20 @@ def style_cell(
     for paragraph in cell.paragraphs:
         paragraph.alignment = align
         for run in paragraph.runs:
+            run.font.name = "Arial"
             run.font.size = Pt(font_size)
             run.bold = bold
 
 
-def generate_wideload_report(
-    df: pd.DataFrame,
-    report_date: str,
-    station: str,
-    bound: str,
-) -> io.BytesIO:
-    doc = Document()
-    apply_standard_layout(
-    doc,
-    report_date=report_date,
-    station=station,
-    bound=bound,
-)
-
+def add_wideload_section(doc: Document, df: pd.DataFrame):
     heading = doc.add_paragraph()
+    heading.paragraph_format.space_before = Pt(8)
+    heading.paragraph_format.space_after = Pt(0)
     run = heading.add_run("7. VEHICLE INSPECTION REPORT (WIDE LOADS)")
     run.bold = True
     run.underline = True
-    run.font.size = Pt(10)
+    run.font.name = "Arial"
+    run.font.size = Pt(11)
 
     columns = list(df.columns)
     widths = get_column_widths(columns)
@@ -149,7 +140,7 @@ def generate_wideload_report(
     set_table_grid(table, columns, widths)
 
     header_row = table.rows[0]
-    header_row.height = Inches(0.8)
+    header_row.height = Inches(1.24)
     header_row.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
 
     for i, col in enumerate(columns):
@@ -158,7 +149,7 @@ def generate_wideload_report(
 
         style_cell(
             cell,
-            font_size=6,
+            font_size=9,
             bold=True,
             vertical=True,
             valign=WD_CELL_VERTICAL_ALIGNMENT.TOP,
@@ -167,7 +158,7 @@ def generate_wideload_report(
 
     for _, row in df.iterrows():
         row_obj = table.add_row()
-        row_obj.height = Inches(0.8)
+        row_obj.height = Inches(1.24)
         row_obj.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
 
         for i, value in enumerate(row):
@@ -176,13 +167,30 @@ def generate_wideload_report(
 
             style_cell(
                 cell,
-                font_size=6,
+                font_size=10,
                 vertical=True,
                 valign=WD_CELL_VERTICAL_ALIGNMENT.CENTER,
                 align=WD_ALIGN_PARAGRAPH.CENTER,
             )
 
     apply_widths_to_all_cells(table, columns, widths)
+
+def generate_wideload_report(
+    df: pd.DataFrame,
+    report_date: str,
+    station: str,
+    bound: str,
+) -> io.BytesIO:
+    doc = Document()
+
+    apply_standard_layout(
+        doc,
+        report_date=report_date,
+        station=station,
+        bound=bound,
+    )
+
+    add_wideload_section(doc, df)
 
     buffer = io.BytesIO()
     doc.save(buffer)
