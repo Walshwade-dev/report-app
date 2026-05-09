@@ -293,7 +293,7 @@ def add_daily_hour_chart_section(doc: Document, daily_df):
     run.font.name = "Arial"
     run.font.size = Pt(11)
 
-    small_table = doc.add_table(rows=28, cols=5)
+    small_table = doc.add_table(rows=27, cols=5)
     small_table.autofit = False
     small_table.allow_autofit = False
     small_table.alignment = WD_TABLE_ALIGNMENT.LEFT
@@ -305,13 +305,11 @@ def add_daily_hour_chart_section(doc: Document, daily_df):
 
     header_row = small_table.rows[0]
     formula_row = small_table.rows[1]
-    duplicate_formula_row = small_table.rows[2]
 
     set_row_height_points(header_row, 33.7)
     set_row_height_points(formula_row, 21.55)
-    set_row_height_points(duplicate_formula_row, 13.8)
 
-    time_cell = header_row.cells[0].merge(duplicate_formula_row.cells[0])
+    time_cell = header_row.cells[0].merge(formula_row.cells[0])
 
     headers = [
         "Time",
@@ -330,19 +328,17 @@ def add_daily_hour_chart_section(doc: Document, daily_df):
 
     set_cell_borders(header_row.cells[0], size="6")
     set_cell_borders(formula_row.cells[0], size="6")
-    set_cell_borders(duplicate_formula_row.cells[0], size="6")
 
     formulas = ["N=(D+S)", "(M)", "Q = H-C", "X= (N+M)"]
 
-    for target_row in [formula_row, duplicate_formula_row]:
-        for i, formula in enumerate(formulas, start=1):
-            cell = target_row.cells[i]
-            set_cell_text(cell, formula)
-            set_cell_width(cell, COMPACT_TABLE_WIDTHS[i])
-            style_table_cell(cell, font_size=10, bold=True)
-            set_cell_borders(cell, size="6")
+    for i, formula in enumerate(formulas, start=1):
+        cell = formula_row.cells[i]
+        set_cell_text(cell, formula)
+        set_cell_width(cell, COMPACT_TABLE_WIDTHS[i])
+        style_table_cell(cell, font_size=10, bold=True)
+        set_cell_borders(cell, size="6")
 
-    for row_index, (_, row) in enumerate(chart_df.iterrows(), start=3):
+    for row_index, (_, row) in enumerate(chart_df.iterrows(), start=2):
         row_obj = small_table.rows[row_index]
         set_row_height_points(row_obj, 16.1)
 
