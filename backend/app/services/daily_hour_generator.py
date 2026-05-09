@@ -179,9 +179,9 @@ def add_daily_hour_statistics_section(doc: Document, daily_df: pd.DataFrame):
     row2 = table.rows[1]
     row3 = table.rows[2]
 
-    row1.height = Pt(14.5)
-    row2.height = Pt(31.0)
-    row3.height = Pt(24.0)
+    row1.height = Pt(13.6)
+    row2.height = Pt(29.6)
+    row3.height = Pt(22.9)
 
     row1.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
     row2.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
@@ -258,7 +258,7 @@ def add_daily_hour_statistics_section(doc: Document, daily_df: pd.DataFrame):
     # data rows INCLUDING totals row
     for _, row in daily_df.iterrows():
         row_obj = table.add_row()
-        row_obj.height = Pt(13.8)
+        row_obj.height = Pt(12.6)
         row_obj.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
 
 
@@ -275,9 +275,20 @@ def add_daily_hour_statistics_section(doc: Document, daily_df: pd.DataFrame):
                 text = str(value)
 
             cell.text = text
-            is_date_or_time = i in {0, 1}
-            font_size = 10 if is_date_or_time else 11
-            style_cell(cell, font_size=font_size, bold=is_total_row or is_date_or_time)
+            is_date_cell = i == 0
+            is_time_cell = i == 1
+
+            if is_date_cell:
+                font_size = 9
+                bold = is_total_row
+            elif is_time_cell:
+                font_size = 8
+                bold = True
+            else:
+                font_size = 11
+                bold = is_total_row
+
+            style_cell(cell, font_size=font_size, bold=bold)
 
     apply_widths_to_all_cells(table, columns, widths)
     
