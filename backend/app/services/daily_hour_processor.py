@@ -23,6 +23,16 @@ HOURS = [
     "2000-2100", "2100-2200", "2200-2300", "2300-0000",
 ]
 
+WIDELOAD_DISTRIBUTION_START_HOUR = "0600-0700"
+WIDELOAD_DISTRIBUTION_END_HOUR = "1700-1800"
+WIDELOAD_DISTRIBUTION_INDEXES = list(
+    range(
+        HOURS.index(WIDELOAD_DISTRIBUTION_START_HOUR),
+        HOURS.index(WIDELOAD_DISTRIBUTION_END_HOUR) + 1,
+    )
+)
+
+
 def extract_daily_hour_core(df: pd.DataFrame) -> pd.DataFrame:
     """
     Extract only required columns and remove totals row
@@ -53,40 +63,50 @@ def extract_daily_hour_core(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def distribute_wideloads(wideload_count: int) -> list[int]:
+def choose_weighted_index(rng, indexes: list[int], weights: dict[int, float]) -> int:
+    total_weight = sum(weights[index] for index in indexes)
+    threshold = rng.uniform(0, total_weight)
+    running_weight = 0
+
+    for index in indexes:
+        running_weight += weights[index]
+
+        if running_weight >= threshold:
+            return index
+
+    return indexes[-1]
+
+
+def distribute_wideloads(wideload_count: int, rng=None) -> list[int]:
     values = [0] * 24
 
     if wideload_count <= 0:
         return values
 
-    allowed_indexes = list(range(6, 18))
-    rng = random.SystemRandom()
-    rng.shuffle(allowed_indexes)
-    weights = {hour_index: rng.randint(1, 12) for hour_index in allowed_indexes}
-    base_count = wideload_count // len(allowed_indexes)
+    rng = rng or random.SystemRandom()
+    max_active_hours = min(len(WIDELOAD_DISTRIBUTION_INDEXES), wideload_count)
+    minimum_active_hours = 1
 
-    if base_count:
-        for hour_index in allowed_indexes:
-            values[hour_index] = base_count
+    if wideload_count >= 6:
+        minimum_active_hours = min(max_active_hours, max(2, math.floor(math.sqrt(wideload_count))))
 
-    remaining_count = wideload_count - (base_count * len(allowed_indexes))
-    max_per_hour = max(base_count + 1, math.ceil((wideload_count / len(allowed_indexes)) * 2))
+    active_hour_count = rng.randint(minimum_active_hours, max_active_hours)
+    active_indexes = rng.sample(WIDELOAD_DISTRIBUTION_INDEXES, active_hour_count)
+    hotspot_count = rng.randint(1, min(3, active_hour_count))
+    hotspot_indexes = set(rng.sample(active_indexes, hotspot_count))
 
-    for _ in range(remaining_count):
-        available_indexes = [
-            hour_index
-            for hour_index in allowed_indexes
-            if values[hour_index] < max_per_hour
-        ]
+    weights = {}
 
-        if not available_indexes:
-            available_indexes = allowed_indexes
+    for hour_index in active_indexes:
+        weight = rng.expovariate(1.0) + 0.15
 
-        chosen_index = rng.choices(
-            available_indexes,
-            weights=[weights[hour_index] for hour_index in available_indexes],
-            k=1,
-        )[0]
+        if hour_index in hotspot_indexes:
+            weight *= rng.uniform(2.5, 7.0)
+
+        weights[hour_index] = weight
+
+    for _ in range(wideload_count):
+        chosen_index = choose_weighted_index(rng, active_indexes, weights)
         values[chosen_index] += 1
 
     return values
