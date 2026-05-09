@@ -20,8 +20,9 @@ from app.services.report_layout import (
     TABLE_BODY_SIZE,
 )
 
-TABLE_WIDTHS = [1316, 1153, 789, 1260, 1248]
+TABLE_WIDTHS = [1110, 960, 660, 1060, 1050]
 COMPACT_TABLE_WIDTHS = TABLE_WIDTHS
+SECTION_TWO_CONTAINER_WIDTHS = [5200, 9000]
 
 
 def set_row_height(row, height):
@@ -286,14 +287,30 @@ def add_daily_hour_chart_section(doc: Document, daily_df):
     chart_df = build_daily_hour_chart_data(daily_df)
 
     heading = doc.add_paragraph()
-    heading.paragraph_format.space_before = Pt(8)
+    heading.paragraph_format.space_before = Pt(0)
     heading.paragraph_format.space_after = Pt(0)
     run = heading.add_run("2. DAILY HOURLY DATA")
     run.bold = True
     run.font.name = "Arial"
     run.font.size = Pt(11)
 
-    small_table = doc.add_table(rows=27, cols=5)
+    container_table = doc.add_table(rows=1, cols=2)
+    container_table.autofit = False
+    container_table.allow_autofit = False
+    container_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+    set_fixed_table_layout(container_table)
+    set_table_grid(container_table, SECTION_TWO_CONTAINER_WIDTHS)
+    remove_table_borders(container_table)
+
+    left_cell = container_table.rows[0].cells[0]
+    right_cell = container_table.rows[0].cells[1]
+    left_cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
+    right_cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
+    set_cell_width(left_cell, SECTION_TWO_CONTAINER_WIDTHS[0])
+    set_cell_width(right_cell, SECTION_TWO_CONTAINER_WIDTHS[1])
+
+    small_table = left_cell.add_table(rows=27, cols=5)
     small_table.autofit = False
     small_table.allow_autofit = False
     small_table.alignment = WD_TABLE_ALIGNMENT.LEFT
@@ -306,8 +323,8 @@ def add_daily_hour_chart_section(doc: Document, daily_df):
     header_row = small_table.rows[0]
     formula_row = small_table.rows[1]
 
-    set_row_height_points(header_row, 33.7)
-    set_row_height_points(formula_row, 21.55)
+    set_row_height_points(header_row, 29.5)
+    set_row_height_points(formula_row, 18.0)
 
     time_cell = header_row.cells[0].merge(formula_row.cells[0])
 
@@ -323,7 +340,7 @@ def add_daily_hour_chart_section(doc: Document, daily_df):
         cell = time_cell if i == 0 else header_row.cells[i]
         set_cell_text(cell, header)
         set_cell_width(cell, COMPACT_TABLE_WIDTHS[i])
-        style_table_cell(cell, font_size=10, bold=True)
+        style_table_cell(cell, font_size=8, bold=True)
         set_cell_borders(cell, size="6")
 
     set_cell_borders(header_row.cells[0], size="6")
@@ -335,12 +352,12 @@ def add_daily_hour_chart_section(doc: Document, daily_df):
         cell = formula_row.cells[i]
         set_cell_text(cell, formula)
         set_cell_width(cell, COMPACT_TABLE_WIDTHS[i])
-        style_table_cell(cell, font_size=10, bold=True)
+        style_table_cell(cell, font_size=8, bold=True)
         set_cell_borders(cell, size="6")
 
     for row_index, (_, row) in enumerate(chart_df.iterrows(), start=2):
         row_obj = small_table.rows[row_index]
-        set_row_height_points(row_obj, 16.1)
+        set_row_height_points(row_obj, 13.8)
 
         values = [row["TIME"], row["N"], row["M"], row["Q"], row["X"]]
 
@@ -351,13 +368,13 @@ def add_daily_hour_chart_section(doc: Document, daily_df):
 
             style_table_cell(
                 cell,
-                font_size=10 if i in {0, 1, 3, 4} else 11,
+                font_size=8,
                 align=WD_ALIGN_PARAGRAPH.LEFT,
             )
             set_cell_borders(cell, size="6")
 
     totals = small_table.rows[-1]
-    set_row_height_points(totals, 16.1)
+    set_row_height_points(totals, 13.8)
 
     total_values = [
         "Total",
@@ -373,7 +390,7 @@ def add_daily_hour_chart_section(doc: Document, daily_df):
         set_cell_width(cell, COMPACT_TABLE_WIDTHS[i])
         style_table_cell(
             cell,
-            font_size=10 if i == 0 else 11,
+            font_size=8,
             bold=True,
             align=WD_ALIGN_PARAGRAPH.CENTER if i == 0 else WD_ALIGN_PARAGRAPH.LEFT,
         )
@@ -381,9 +398,9 @@ def add_daily_hour_chart_section(doc: Document, daily_df):
 
     chart_image = create_daily_hour_chart_image(chart_df)
 
-    paragraph = doc.add_paragraph()
+    paragraph = right_cell.paragraphs[0]
     paragraph.paragraph_format.space_before = Pt(0)
     paragraph.paragraph_format.space_after = Pt(0)
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = paragraph.add_run()
-    run.add_picture(chart_image, width=Inches(6.05), height=Inches(5.84))
+    run.add_picture(chart_image, width=Inches(5.75), height=Inches(5.2))

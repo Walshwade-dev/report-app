@@ -97,7 +97,9 @@ def build_final_report(
         add_daily_hour_statistics_section(doc, daily_df)
         add_prepared_confirmed_lines(doc, prepared_by, confirmed_by)
 
+        doc.add_page_break()
         add_daily_hour_chart_section(doc, daily_df)
+        doc.add_page_break()
 
     if traffic_census is not None:
         total_traffic = (
