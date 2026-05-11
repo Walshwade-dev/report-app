@@ -210,17 +210,6 @@ def assert_table_grids_fit_a4_printable_width(docx_bytes: bytes) -> None:
         assert sum(widths) <= A4_PRINTABLE_WIDTH_TWIPS
 
 
-def worksheet_contains_text(worksheet, text: str) -> bool:
-    expected = text.strip().upper()
-    for row in worksheet.iter_rows(values_only=True):
-        for value in row:
-            if value is None:
-                continue
-            if str(value).strip().upper() == expected:
-                return True
-    return False
-
-
 def test_upload_fixtures_build_and_download_final_report(client, temp_store):
     report_id = create_report_session(client)
     upload_required_files(client, report_id)
@@ -300,13 +289,19 @@ def test_upload_fixtures_download_excel_report(client, temp_store):
     assert workbook.sheetnames == ["Summary", "CC records"]
 
     summary = workbook["Summary"]
-    for section_title in [
-        "DAILY AND HOURLY STATISTICS",
-        "DAILY HOURLY DATA",
-        "TRAFFIC CENSUS DATA",
-        "DAILY SUMMARY",
-    ]:
-        assert worksheet_contains_text(summary, section_title)
+    assert summary["D2"].value == "Trucks Weighed"
+    assert summary["T2"].value == "TIME"
+    assert summary["C33"].value == "Buses>= 3500kg  (J)"
+    assert summary["B38"].value == "HSWIM CLEARED (Q)"
+    assert len(summary._charts) == 1
+    assert summary.column_dimensions["B"].width == 12.140625
+    assert summary.row_dimensions[38].height == 67.5
+    assert summary["D6"].fill.fgColor.rgb == "FFFFFF00"
+    assert summary["H6"].fill.fgColor.rgb == "FFFF0000"
+
+    cc_records = workbook["CC records"]
+    assert cc_records["B2"].value == "Total Traffic Census Summary"
+    assert cc_records["B14"].fill.fgColor.rgb == "FF00B050"
 
 
 def test_traffic_census_preview_requires_wideload_upload(client, temp_store):
