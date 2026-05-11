@@ -8,7 +8,14 @@ from openpyxl import Workbook
 from openpyxl.chart import LineChart, Reference
 from openpyxl.chart.axis import ChartLines
 from openpyxl.chart.label import DataLabelList
+from openpyxl.chart.text import RichText
 from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, TwoCellAnchor
+from openpyxl.drawing.text import (
+    CharacterProperties,
+    Paragraph,
+    ParagraphProperties,
+    RichTextProperties,
+)
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.worksheet.worksheet import Worksheet
 
@@ -277,8 +284,22 @@ def _set_dimensions(ws: Worksheet, widths: dict[str, float], heights: dict[int, 
         ws.row_dimensions[row].height = height
 
 
+def _split_three_rows(total: int) -> list[int]:
+    if total <= 0:
+        return [0, 0, 0]
+
+    first = round(total * 0.19)
+    second = round(total * 0.55)
+    third = total - first - second
+
+    if third < 0:
+        third = 0
+        second = total - first
+
+    return [first, second, third]
+
+
 def _apply_sheet_setup(ws: Worksheet) -> None:
-    ws.sheet_view.showGridLines = False
     ws.page_setup.orientation = "landscape"
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 0
@@ -433,10 +454,6 @@ def _write_daily_hour_rows(ws: Worksheet, daily_df: pd.DataFrame, session) -> No
 
 
 def _write_traffic_census_summary(ws: Worksheet, session, totals: dict[str, int]) -> None:
-    traffic = _traffic_values(session)
-    wideload_count = get_wideload_count_from_session(session)
-    exemption_not_weighed = wideload_count if wideload_count is not None else totals["E"]
-
     _merge_and_set(ws, "C33:C35", "Buses>= 3500kg  (J)", bold=True, border=MEDIUM_BORDER)
     _merge_and_set(
         ws,
@@ -458,18 +475,33 @@ def _write_traffic_census_summary(ws: Worksheet, session, totals: dict[str, int]
     _merge_and_set(ws, "I34:I35", "Total Weighed \n(X)", bold=True, border=MEDIUM_BORDER)
     _merge_and_set(ws, "J34:J35", "Total Traffic\n(T)= (Q+X+K+E)", bold=True, border=MEDIUM_BORDER)
 
-    _set_cell(ws, "C36", traffic["buses_gte_3500kg"], border=MEDIUM_BORDER, number_format="#,##0")
+    no_left_medium = Border(
+        left=NO_SIDE,
+        right=MEDIUM_SIDE,
+        top=MEDIUM_SIDE,
+        bottom=MEDIUM_SIDE,
+    )
+    _set_cell(
+        ws,
+        "C36",
+        "='CC records'!B14",
+        fill=RED_FILL,
+        border=MEDIUM_BORDER,
+        number_format="#,##0",
+    )
     _set_cell(
         ws,
         "D36",
-        traffic["vehicles_3500_to_7000_excluding_buses"],
+        "='CC records'!C14",
+        fill=RED_FILL,
         border=MEDIUM_BORDER,
         number_format="#,##0",
     )
     _set_cell(
         ws,
         "E36",
-        traffic["vehicles_gte_7000_excluding_buses"],
+        "='CC records'!D14",
+        fill=RED_FILL,
         border=MEDIUM_BORDER,
         number_format="#,##0",
     )
@@ -478,17 +510,31 @@ def _write_traffic_census_summary(ws: Worksheet, session, totals: dict[str, int]
         "F36:G36",
         "=C36+D36+E36",
         fill=RED_FILL,
-        border=MEDIUM_BORDER,
+        border=no_left_medium,
         number_format="#,##0",
     )
-    _set_cell(ws, "H36", exemption_not_weighed, border=MEDIUM_BORDER, number_format="#,##0")
-    _set_cell(ws, "I36", totals["X"], border=MEDIUM_BORDER, number_format="#,##0")
+    _set_cell(
+        ws,
+        "H36",
+        "=Q30",
+        fill=RED_FILL,
+        border=no_left_medium,
+        number_format="#,##0",
+    )
+    _set_cell(
+        ws,
+        "I36",
+        "=I30",
+        fill=RED_FILL,
+        border=no_left_medium,
+        number_format="#,##0",
+    )
     _set_cell(
         ws,
         "J36",
-        "=H30+I30+F36+H36",
+        "=F40",
         fill=RED_FILL,
-        border=MEDIUM_BORDER,
+        border=no_left_medium,
         number_format="#,##0",
     )
 
@@ -559,56 +605,101 @@ def _write_daily_summary(ws: Worksheet, session) -> None:
         else:
             _set_cell(ws, coordinate, value, bold=True, border=MEDIUM_BORDER)
 
+    no_left_medium = Border(
+        left=NO_SIDE,
+        right=MEDIUM_SIDE,
+        top=MEDIUM_SIDE,
+        bottom=MEDIUM_SIDE,
+    )
     values = {
-        "B40": summary["weighed_by_hswim_q"],
-        "C40": summary["weighed_scale_total_n"],
-        "D40": summary["manually_weighed_m"],
-        "E40": summary["total_weighed_x"],
-        "F40:G40": summary["total_traffic_t"],
-        "H40": summary["total_overload_y"],
-        "I40": summary["warned_a"],
-        "J40": summary["charged_prohibited_z"],
-        "K40": summary["special_release_g"],
-        "L40": summary["vehicles_charged_but_redistributed_r"],
-        "M40": summary["impounded_prohibited_p"],
-        "N40": summary["cases_cleared_in_court_b"],
-        "O40": summary["transgressions_l"],
-        "P40": summary["exemption_permits_not_weighed_e"],
-        "Q40": summary["exemption_permits_weighed_f"],
-        "R40": summary["exemption_permits_total"],
+        "B40": ("=H30", RED_FILL, Border(left=MEDIUM_SIDE, right=MEDIUM_SIDE, top=NO_SIDE, bottom=MEDIUM_SIDE)),
+        "C40": ("=D30+E30", RED_FILL, Border(left=MEDIUM_SIDE, right=MEDIUM_SIDE, top=THIN_SIDE, bottom=MEDIUM_SIDE)),
+        "D40": ("=F30", RED_FILL, MEDIUM_BORDER),
+        "E40": ("=SUM(C40:D40)", RED_FILL, no_left_medium),
+        "F40:G40": ("=E40+F36+H36+B40", RED_FILL, MEDIUM_BORDER),
+        "H40": ("=K30", RED_FILL, no_left_medium),
+        "I40": ("=M30", RED_FILL, MEDIUM_BORDER),
+        "J40": ("=N30", RED_FILL, no_left_medium),
+        "K40": ("=O30", RED_FILL, no_left_medium),
+        "L40": ("=P30", RED_FILL, no_left_medium),
+        "M40": ("=L30", RED_FILL, no_left_medium),
+        "N40": (summary["cases_cleared_in_court_b"], NO_FILL, no_left_medium),
+        "O40": (summary["transgressions_l"], NO_FILL, no_left_medium),
+        "P40": ("=Q30", RED_FILL, MEDIUM_BORDER),
+        "Q40": (summary["exemption_permits_weighed_f"], NO_FILL, no_left_medium),
+        "R40": ("=P40+Q40", RED_FILL, MEDIUM_BORDER),
     }
-    for coordinate, value in values.items():
+    for coordinate, (value, fill, border) in values.items():
         if ":" in coordinate:
             _merge_and_set(
                 ws,
                 coordinate,
                 value,
-                fill=RED_FILL,
-                border=MEDIUM_BORDER,
+                fill=fill,
+                border=border,
                 number_format="#,##0",
+                wrap_text=None if coordinate == "R40" else True,
             )
         else:
             _set_cell(
                 ws,
                 coordinate,
                 value,
-                fill=RED_FILL,
-                border=MEDIUM_BORDER,
+                fill=fill,
+                border=border,
                 number_format="#,##0",
             )
+
+
+def _chart_axis_text_properties() -> RichText:
+    return RichText(
+        bodyPr=RichTextProperties(
+            rot=-60000000,
+            spcFirstLastPara=True,
+            vertOverflow="ellipsis",
+            vert="horz",
+            wrap="square",
+            anchor="ctr",
+            anchorCtr=True,
+        ),
+        p=[
+            Paragraph(
+                pPr=ParagraphProperties(
+                    defRPr=CharacterProperties(sz=900, b=False)
+                )
+            )
+        ],
+    )
 
 
 def _add_daily_hour_chart(ws: Worksheet) -> None:
     chart = LineChart()
     chart.title = "Graph on Trucks Weighed per Hour"
-    chart.style = 13
+    chart.style = 2
+    chart.x_axis.axId = 1763517568
+    chart.y_axis.axId = 1763495520
+    chart.x_axis.crossAx = 1763495520
+    chart.y_axis.crossAx = 1763517568
+    chart.x_axis.axPos = "b"
+    chart.y_axis.axPos = "l"
+    chart.x_axis.tickLblPos = "nextTo"
+    chart.y_axis.tickLblPos = "nextTo"
+    chart.x_axis.numFmt = "General"
+    chart.y_axis.numFmt = "General"
+    chart.x_axis.txPr = _chart_axis_text_properties()
+    chart.y_axis.txPr = _chart_axis_text_properties()
     chart.y_axis.scaling.min = 0
     chart.y_axis.scaling.max = 300
     chart.y_axis.majorUnit = 50
     chart.y_axis.majorGridlines = ChartLines()
     chart.legend.position = "b"
     chart.dataLabels = DataLabelList()
+    chart.dataLabels.showLegendKey = False
     chart.dataLabels.showVal = False
+    chart.dataLabels.showCatName = False
+    chart.dataLabels.showSerName = False
+    chart.dataLabels.showPercent = False
+    chart.dataLabels.showBubbleSize = False
 
     data = Reference(ws, min_col=21, max_col=24, min_row=5, max_row=29)
     categories = Reference(ws, min_col=20, min_row=6, max_row=29)
@@ -618,7 +709,7 @@ def _add_daily_hour_chart(ws: Worksheet) -> None:
     colors = ["4472C4", "ED7D31", "A5A5A5", "FFC000"]
     for series, color in zip(chart.series, colors, strict=False):
         series.graphicalProperties.line.solidFill = color
-        series.graphicalProperties.line.width = 22000
+        series.graphicalProperties.line.width = 28575
 
     chart.anchor = TwoCellAnchor(
         _from=AnchorMarker(col=18, colOff=178594, row=30, rowOff=122283),
@@ -692,17 +783,30 @@ def _write_cc_records(ws: Worksheet, session) -> None:
                 border=THIN_BORDER,
             )
     else:
-        _merge_and_set(
-            ws,
-            "B8:D10",
-            "NIL - No detailed CC records captured.",
-            border=THIN_BORDER,
-            wrap_text=True,
+        fallback_rows = zip(
+            _split_three_rows(traffic["buses_gte_3500kg"]),
+            _split_three_rows(traffic["vehicles_3500_to_7000_excluding_buses"]),
+            _split_three_rows(traffic["vehicles_gte_7000_excluding_buses"]),
+            strict=True,
         )
+        for row_index, values in enumerate(fallback_rows, start=8):
+            for column, value in zip(["B", "C", "D"], values, strict=True):
+                _set_cell(
+                    ws,
+                    f"{column}{row_index}",
+                    value,
+                    border=THIN_BORDER,
+                    horizontal=None,
+                    vertical=None,
+                    wrap_text=None,
+                    number_format="General",
+                )
 
     _merge_and_set(ws, "B12:D12", "RELEASED TRUCKS", size=14, fill=YELLOW_FILL, border=Border(left=MEDIUM_SIDE, right=MEDIUM_SIDE, top=MEDIUM_SIDE, bottom=NO_SIDE))
-    _set_cell(ws, "B13", 0, border=THIN_BORDER, number_format="#,##0")
-    _set_cell(ws, "C13", 0, border=THIN_BORDER, number_format="#,##0")
+    released_border = Border(left=THIN_SIDE, right=THIN_SIDE, top=NO_SIDE, bottom=THIN_SIDE)
+    _set_cell(ws, "B13", 0, border=released_border, vertical=None, wrap_text=None)
+    _set_cell(ws, "C13", 0, border=released_border, vertical=None, wrap_text=None)
+    _set_cell(ws, "D13", None, border=THIN_BORDER, vertical=None, wrap_text=None)
     _merge_and_set(ws, "G12:J12", "Total Traffic Census (K)", size=14, bold=True, border=MEDIUM_BORDER, vertical="top")
     _merge_and_set(
         ws,
@@ -710,27 +814,31 @@ def _write_cc_records(ws: Worksheet, session) -> None:
         "=B14+C14+D14",
         fill=GREEN_FILL,
         border=MEDIUM_BORDER,
-        number_format="#,##0",
+        number_format="General",
     )
 
-    _set_cell(ws, "B14", traffic["buses_gte_3500kg"], fill=GREEN_FILL, border=MEDIUM_BORDER, number_format="#,##0")
+    _set_cell(ws, "B14", "=SUM(B6:B13)", fill=GREEN_FILL, border=MEDIUM_BORDER, number_format="General", vertical=None, wrap_text=None)
     _set_cell(
         ws,
         "C14",
-        traffic["vehicles_3500_to_7000_excluding_buses"],
+        "=SUM(C6:C13)",
         fill=GREEN_FILL,
         border=MEDIUM_BORDER,
-        number_format="#,##0",
+        number_format="General",
+        vertical=None,
+        wrap_text=None,
     )
     _set_cell(
         ws,
         "D14",
-        traffic["vehicles_gte_7000_excluding_buses"],
+        "=SUM(D6:D13)",
         fill=GREEN_FILL,
         border=MEDIUM_BORDER,
-        number_format="#,##0",
+        number_format="General",
+        vertical=None,
+        wrap_text=None,
     )
-    _set_cell(ws, "D17", "NIL - No detailed CC records captured.", border=None, horizontal="left")
+    _set_cell(ws, "D17", "                                               ", border=None, horizontal=None, vertical=None, wrap_text=None)
     _apply_sheet_setup(ws)
 
 

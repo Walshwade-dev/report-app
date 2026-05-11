@@ -298,10 +298,24 @@ def test_upload_fixtures_download_excel_report(client, temp_store):
     assert summary.row_dimensions[38].height == 67.5
     assert summary["D6"].fill.fgColor.rgb == "FFFFFF00"
     assert summary["H6"].fill.fgColor.rgb == "FFFF0000"
+    assert summary["N40"].fill.fgColor.rgb == "00000000"
+    assert summary["O40"].fill.fgColor.rgb == "00000000"
+    assert summary["Q40"].fill.fgColor.rgb == "00000000"
+    assert summary["P40"].value == "=Q30"
+    assert summary._charts[0].x_axis.axPos == "b"
 
     cc_records = workbook["CC records"]
     assert cc_records["B2"].value == "Total Traffic Census Summary"
+    assert "B8:D10" not in {str(merged) for merged in cc_records.merged_cells.ranges}
+    assert cc_records["B8"].value is not None
+    assert cc_records["C9"].value is not None
+    assert cc_records["D10"].value is not None
+    assert cc_records["B14"].value == "=SUM(B6:B13)"
+    assert cc_records["C14"].value == "=SUM(C6:C13)"
+    assert cc_records["D14"].value == "=SUM(D6:D13)"
     assert cc_records["B14"].fill.fgColor.rgb == "FF00B050"
+    assert cc_records["C14"].fill.fgColor.rgb == "FF00B050"
+    assert cc_records["D14"].fill.fgColor.rgb == "FF00B050"
 
 
 def test_traffic_census_preview_requires_wideload_upload(client, temp_store):

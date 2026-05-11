@@ -129,6 +129,7 @@ Use this section as the running project history.
 2026-05-08 - Finalized report-session backend for online handoff: upload/build flow, Section 1-7 previews, final DOCX output, wideload-derived E values, Letter layout, and frontend summary-card data are passing tests.
 2026-05-11 - Added report-session Excel workbook generation and download endpoint using processed session data.
 2026-05-11 - Updated Excel workbook generation to follow the Juja reference workbook layout, colors, dimensions, formulas, and embedded graph.
+2026-05-11 - Refined Excel workbook details: preserved worksheet gridlines, kept manual summary entry cells unfilled, restored CC three-row layout with green SUM totals, and adjusted chart axes/data labels.
 ```
 
 ### Latest Backend Implementation Step
@@ -145,14 +146,16 @@ Behavior added:
 - GET /api/report-sessions/{report_id}/download-excel-report builds an XLSX workbook directly from processed session data.
 - The workbook contains Summary and CC records sheets.
 - Summary now follows the uploaded Juja workbook structure with fixed B:X table placement, matching row heights, column widths, merged cells, Arial fonts, yellow raw-data fills, red formula fills, and the daily/hour graph.
-- CC records follows the reference summary layout with matching title/header placement, green total cells, and a NIL placeholder when detailed CC records are not available.
+- Manual Daily Summary entry cells for cases cleared in court, transgressions, and exemption permits weighed are left unfilled like the reference.
+- CC records follows the reference summary layout with matching title/header placement, three data rows, and green SUM total cells.
+- The line graph now keeps the category axis at the bottom, rotates axis labels, and disables chart data labels to avoid labels covering the plot.
 
 Rationale:
 - The frontend needs an Excel download without converting the DOCX report.
 - Generating the workbook from session data keeps the Excel feature separate from final DOCX generation while reusing the same processed values.
 
 Tests and verification:
-- Upload-through-build API test now downloads the Excel report, checks the Excel MIME type, opens it with openpyxl, and asserts required sheets, reference labels, row/column dimensions, fill colors, and chart presence.
+- Upload-through-build API test now downloads the Excel report, checks the Excel MIME type, opens it with openpyxl, and asserts required sheets, reference labels, row/column dimensions, fill colors, manual unfilled cells, CC green formula totals, and chart axis placement.
 - `backend/venv/bin/python -m compileall backend/app` passes.
 - `PYTHONPATH=backend MPLCONFIGDIR=/tmp/matplotlib-cache backend/venv/bin/python -m pytest backend/tests -vv` passes.
 
