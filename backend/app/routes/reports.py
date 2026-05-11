@@ -11,6 +11,7 @@ from app.services.daily_hour_processor import (
     build_daily_hour_metrics,
     distribute_wideloads,
 )
+from app.services.excel_report_builder import build_excel_report
 from app.services.final_report_builder import build_final_report
 from app.services.overloaded_summary import count_valid_permit_vehicles
 from app.services.preview_renderer import get_cached_section_preview
@@ -55,6 +56,10 @@ def daily_display_date(report_date: str) -> str:
 
 
 def serialize_session(session: ReportSession) -> dict:
+    excel_report_ready = (
+        "daily_hour" in session.dataframes
+        and session.sections.get("daily_hour", {}).get("status") == "ready"
+    )
     final_report = {
         "status": session.final_report_status,
         "download_url": None,
@@ -79,6 +84,14 @@ def serialize_session(session: ReportSession) -> dict:
         "manual_inputs": session.manual_inputs,
         "sections": session.sections,
         "final_report": final_report,
+        "excel_report": {
+            "status": "ready" if excel_report_ready else "awaiting_data",
+            "download_url": (
+                f"/api/report-sessions/{session.report_id}/download-excel-report"
+                if excel_report_ready
+                else None
+            ),
+        },
     }
 
 
@@ -545,5 +558,33 @@ async def download_report_session_final_report(report_id: str):
     return Response(
         content=session.final_report,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.get("/report-sessions/{report_id}/download-excel-report")
+async def download_report_session_excel_report(report_id: str):
+    session = require_session(report_id)
+
+    if (
+        "daily_hour" not in session.dataframes
+        or session.sections.get("daily_hour", {}).get("status") != "ready"
+    ):
+        raise HTTPException(status_code=400, detail="Daily hour data is not ready")
+
+    try:
+        file_stream = build_excel_report(session)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    filename = (
+        f"{session.station}_{session.bound}_{session.report_date}_daily_report.xlsx"
+        .lower()
+        .replace(" ", "_")
+    )
+
+    return Response(
+        content=file_stream.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )

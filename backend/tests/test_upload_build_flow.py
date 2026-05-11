@@ -4,6 +4,7 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from docx import Document
+from openpyxl import load_workbook
 
 from app.services.report_layout import (
     A4_LANDSCAPE_HEIGHT_INCHES,
@@ -209,6 +210,17 @@ def assert_table_grids_fit_a4_printable_width(docx_bytes: bytes) -> None:
         assert sum(widths) <= A4_PRINTABLE_WIDTH_TWIPS
 
 
+def worksheet_contains_text(worksheet, text: str) -> bool:
+    expected = text.strip().upper()
+    for row in worksheet.iter_rows(values_only=True):
+        for value in row:
+            if value is None:
+                continue
+            if str(value).strip().upper() == expected:
+                return True
+    return False
+
+
 def test_upload_fixtures_build_and_download_final_report(client, temp_store):
     report_id = create_report_session(client)
     upload_required_files(client, report_id)
@@ -264,6 +276,37 @@ def test_upload_fixtures_build_and_download_final_report(client, temp_store):
         download.headers["content-type"]
         == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
+
+
+def test_upload_fixtures_download_excel_report(client, temp_store):
+    report_id = create_report_session(client)
+    upload_required_files(client, report_id)
+    patch_manual_inputs(client, report_id)
+
+    session_payload = client.get(f"/api/report-sessions/{report_id}").json()
+    assert session_payload["excel_report"]["download_url"] == (
+        f"/api/report-sessions/{report_id}/download-excel-report"
+    )
+
+    download = client.get(f"/api/report-sessions/{report_id}/download-excel-report")
+
+    assert download.status_code == 200
+    assert (
+        download.headers["content-type"]
+        == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    workbook = load_workbook(io.BytesIO(download.content))
+    assert workbook.sheetnames == ["Summary", "CC records"]
+
+    summary = workbook["Summary"]
+    for section_title in [
+        "DAILY AND HOURLY STATISTICS",
+        "DAILY HOURLY DATA",
+        "TRAFFIC CENSUS DATA",
+        "DAILY SUMMARY",
+    ]:
+        assert worksheet_contains_text(summary, section_title)
 
 
 def test_traffic_census_preview_requires_wideload_upload(client, temp_store):

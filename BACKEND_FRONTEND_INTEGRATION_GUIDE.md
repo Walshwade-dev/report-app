@@ -56,6 +56,7 @@ Final reports are persisted under backend/app/storage/final_reports/
 Report sessions can be reloaded after browser refresh or backend restart
 Final report build endpoint exists for implemented sections
 Final report download endpoint exists
+Excel report download endpoint exists
 Final report builder can include Sections 1, 2, 3, 4, 5, 6, and 7
 Section preview renderer exists
 Section preview endpoint exists
@@ -82,6 +83,7 @@ Automated API tests exist for persistent report-session recovery
 Storage retention cleanup method exists for expired report-session artifacts
 Reusable CSV fixtures exist for upload-through-build backend tests
 Upload-through-build API test exists for report-session workflow
+Upload-through-build API test covers Excel report download workbook structure
 A4 landscape is the canonical final report page size
 ```
 
@@ -125,46 +127,40 @@ Use this section as the running project history.
 2026-05-08 - Restored numbered section headings, corrected Traffic Census capitalization, added same-page section spacing, and restored wideload vertical-cell layout while keeping Letter page setup.
 2026-05-08 - Added report-session summary-card endpoint for Total Weighed, Total Overloaded, Special Released, and Wide Loads; tuned E distribution window, wideload row height, and footer font size.
 2026-05-08 - Finalized report-session backend for online handoff: upload/build flow, Section 1-7 previews, final DOCX output, wideload-derived E values, Letter layout, and frontend summary-card data are passing tests.
+2026-05-11 - Added report-session Excel workbook generation and download endpoint using processed session data.
 ```
 
 ### Latest Backend Implementation Step
 
 ```text
 Files changed:
-- backend/app/services/report_layout.py
-- backend/app/services/daily_hour_generator.py
-- backend/app/services/wideload_generator.py
-- backend/app/services/impounded_prohibited_generator.py
-- backend/app/services/transgressions_generator.py
+- backend/app/services/excel_report_builder.py
+- backend/app/routes/reports.py
 - backend/tests/test_upload_build_flow.py
-- backend/test_final_report.py
 - BACKEND_FRONTEND_INTEGRATION_GUIDE.md
 
 Behavior added:
-- A4 landscape is now the explicit canonical report page size in the shared layout service.
-- Shared layout constants define A4 dimensions, margins, header/footer distances, printable width, and table width.
-- Wide table generators use the shared A4 table width so table grids stay inside the A4 landscape printable area.
-- Final-report smoke generation now includes the derived Daily Summary section for visual inspection.
+- Report sessions now expose excel_report.download_url once daily_hour data is ready.
+- GET /api/report-sessions/{report_id}/download-excel-report builds an XLSX workbook directly from processed session data.
+- The workbook contains Summary and CC records sheets.
+- Summary includes Daily and Hourly Statistics, Daily Hour Data, Traffic Census Data, and Daily Summary tables.
+- CC records includes a census summary plus a NIL row when detailed CC records are not available.
 
 Rationale:
-- The backend already used A4 landscape in the shared layout, and the report tables fit that page size with tight margins.
-- Standardizing on A4 avoids Letter-specific width assumptions while preserving the existing section layout behavior.
+- The frontend needs an Excel download without converting the DOCX report.
+- Generating the workbook from session data keeps the Excel feature separate from final DOCX generation while reusing the same processed values.
 
 Tests and verification:
-- Upload-through-build API test now asserts the downloaded final DOCX uses A4 landscape dimensions and configured margins.
-- Upload-through-build API test now asserts Word table grids do not exceed the A4 landscape printable width.
+- Upload-through-build API test now downloads the Excel report, checks the Excel MIME type, opens it with openpyxl, and asserts the required sheets and Summary section titles.
 - `backend/venv/bin/python -m compileall backend/app` passes.
-- `backend/venv/bin/python -m pytest backend/tests -vv` passes.
-- Fixture final report was generated, converted to PDF with LibreOffice, and inspected as A4 landscape output.
-- Visual inspection found no clipped tables, no horizontal overflow, aligned footer text/page fields, and correctly scaled Section 2 chart output.
+- `PYTHONPATH=backend MPLCONFIGDIR=/tmp/matplotlib-cache backend/venv/bin/python -m pytest backend/tests -vv` passes.
 
 Limitations:
-- The fixture-rendered report still shows a blank spacer page after Section 1.
-- Visual inspection used small reusable fixtures; longer real-world text may still need row-height, font-size, or column-ratio tuning.
-- Full visual comparison tests are still not implemented.
+- Detailed CC records are not captured by the current upload flow, so the CC records sheet emits a clear NIL placeholder for that table.
+- Excel visual comparison against the sample workbook is approximate rather than pixel-perfect.
 
 Next recommended task:
-- Broaden fixture-based upload tests if more sample cases become available.
+- Add a detailed CC records input/upload flow when the source data becomes available.
 ```
 
 ## Backend Folder Tree
@@ -190,6 +186,7 @@ backend/
 │   │   ├── daily_hour_processor.py
 │   │   ├── daily_summary_generator.py
 │   │   ├── daily_summary_processor.py
+│   │   ├── excel_report_builder.py
 │   │   ├── final_report_builder.py
 │   │   ├── impounded_prohibited_generator.py
 │   │   ├── overloaded_summary.py
@@ -315,9 +312,10 @@ POST /api/report-sessions/{report_id}/uploads/overloaded
 POST /api/report-sessions/{report_id}/build-final-report
 GET /api/report-sessions/{report_id}/sections/{section_name}/preview
 GET /api/report-sessions/{report_id}/download-final-report
+GET /api/report-sessions/{report_id}/download-excel-report
 ```
 
-At the moment, the backend can clean uploaded data, generate standalone Word reports for wideload and impounded/prohibited sections, and create filesystem-backed report sessions for the frontend workflow. Daily/hour data, wideload data, impounded/prohibited data, and overloaded data can now be uploaded into a report session and recovered from disk by `report_id`. Manual report inputs can be stored for prepared by, confirmed by, weighbridge name, traffic census, cases cleared in court, transgressions count, and transgressions. Traffic Census manual input is validated and can be rendered as Section 3. Daily Summary is derived from ready source sections and can be rendered as Section 4. Transgressions manual input is normalized and can be rendered as Section 5 with NIL rows when either table has no records. Section previews are available for daily/hour, traffic census, daily summary, transgressions, wideload, and impounded/prohibited sections as cached PNG, PDF, or DOCX artifacts. The final report can be built, persisted, recovered, and downloaded for the currently implemented sections.
+At the moment, the backend can clean uploaded data, generate standalone Word reports for wideload and impounded/prohibited sections, and create filesystem-backed report sessions for the frontend workflow. Daily/hour data, wideload data, impounded/prohibited data, and overloaded data can now be uploaded into a report session and recovered from disk by `report_id`. Manual report inputs can be stored for prepared by, confirmed by, weighbridge name, traffic census, cases cleared in court, transgressions count, and transgressions. Traffic Census manual input is validated and can be rendered as Section 3. Daily Summary is derived from ready source sections and can be rendered as Section 4. Transgressions manual input is normalized and can be rendered as Section 5 with NIL rows when either table has no records. Section previews are available for daily/hour, traffic census, daily summary, transgressions, wideload, and impounded/prohibited sections as cached PNG, PDF, or DOCX artifacts. The final report can be built, persisted, recovered, and downloaded for the currently implemented sections. The Excel report can be downloaded directly from processed session data when daily/hour data is ready.
 
 ## Current File Responsibilities
 
@@ -363,6 +361,7 @@ POST /api/report-sessions/{report_id}/uploads/overloaded
 POST /api/report-sessions/{report_id}/build-final-report
 GET /api/report-sessions/{report_id}/sections/{section_name}/preview
 GET /api/report-sessions/{report_id}/download-final-report
+GET /api/report-sessions/{report_id}/download-excel-report
 ```
 
 This module stores report state through `report_session_store.py`. The API response shape remains session-oriented, while metadata and generated artifacts are now persisted under `backend/app/storage/` so sessions can be recovered by `report_id`.
@@ -885,6 +884,10 @@ Example response shape:
     "status": "not_built",
     "download_url": null,
     "error": null
+  },
+  "excel_report": {
+    "status": "awaiting_data",
+    "download_url": null
   }
 }
 ```
@@ -1136,6 +1139,45 @@ Current final report visual rendering status:
 All target sections are now visually renderable when their source data exists
 A4 landscape is the canonical final report page size
 Fixture-generated report output has been visually inspected after DOCX-to-PDF conversion
+```
+
+### 10. Download Excel Report
+
+Frontend endpoint:
+
+```text
+GET /api/report-sessions/{report_id}/download-excel-report
+```
+
+The frontend can use:
+
+```js
+`${API_BASE}/api/report-sessions/${reportId}/download-excel-report`
+```
+
+The serialized session also includes:
+
+```json
+{
+  "excel_report": {
+    "status": "ready",
+    "download_url": "/api/report-sessions/{report_id}/download-excel-report"
+  }
+}
+```
+
+Current Excel workbook includes:
+
+```text
+Sheet 1: Summary
+- Daily and Hourly Statistics
+- Daily Hour Data
+- Traffic Census Data
+- Daily Summary
+
+Sheet 2: CC records
+- Traffic census summary
+- Census / CC records table with a NIL placeholder until detailed CC records are captured
 ```
 
 Remaining report work is polish and hardening, including broader fixture coverage as more sample cases become available.
