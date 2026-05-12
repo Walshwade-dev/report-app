@@ -706,7 +706,7 @@ def _add_daily_hour_chart(ws: Worksheet) -> None:
     chart.add_data(data, titles_from_data=True)
     chart.set_categories(categories)
 
-    colors = ["4472C4", "ED7D31", "A5A5A5", "FFC000"]
+    colors = ["4472C4", "ED7D31", "70AD47", "7030A0"]
     for series, color in zip(chart.series, colors, strict=False):
         series.graphicalProperties.line.solidFill = color
         series.graphicalProperties.line.width = 28575
@@ -842,6 +842,10 @@ def _write_cc_records(ws: Worksheet, session) -> None:
     _apply_sheet_setup(ws)
 
 
+def _write_hswim_weekly(ws: Worksheet) -> None:
+    _apply_sheet_setup(ws)
+
+
 def build_excel_report(session) -> io.BytesIO:
     if (
         "daily_hour" not in session.dataframes
@@ -856,6 +860,9 @@ def build_excel_report(session) -> io.BytesIO:
 
     cc_records = workbook.create_sheet("CC records")
     _write_cc_records(cc_records, session)
+
+    hswim_weekly = workbook.create_sheet("Hswim Weekly")
+    _write_hswim_weekly(hswim_weekly)
 
     buffer = io.BytesIO()
     workbook.save(buffer)

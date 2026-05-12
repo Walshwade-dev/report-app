@@ -144,11 +144,11 @@ Files changed:
 Behavior added:
 - Report sessions now expose excel_report.download_url once daily_hour data is ready.
 - GET /api/report-sessions/{report_id}/download-excel-report builds an XLSX workbook directly from processed session data.
-- The workbook contains Summary and CC records sheets.
+- The workbook contains Summary, CC records, and Hswim Weekly sheets.
 - Summary now follows the uploaded Juja workbook structure with fixed B:X table placement, matching row heights, column widths, merged cells, Arial fonts, yellow raw-data fills, red formula fills, and the daily/hour graph.
 - Manual Daily Summary entry cells for cases cleared in court, transgressions, and exemption permits weighed are left unfilled like the reference.
 - CC records follows the reference summary layout with matching title/header placement, three data rows, and green SUM total cells.
-- The line graph now keeps the category axis at the bottom, rotates axis labels, and disables chart data labels to avoid labels covering the plot.
+- The line graph now keeps the category axis at the bottom, rotates axis labels, uses the reference blue/orange/green/purple series colors, and disables chart data labels to avoid labels covering the plot.
 
 Rationale:
 - The frontend needs an Excel download without converting the DOCX report.
@@ -160,7 +160,7 @@ Tests and verification:
 - `PYTHONPATH=backend MPLCONFIGDIR=/tmp/matplotlib-cache backend/venv/bin/python -m pytest backend/tests -vv` passes.
 
 Limitations:
-- Detailed CC records are not captured by the current upload flow, so the CC records sheet emits a clear NIL placeholder for that table.
+- Detailed CC records are not captured by the current upload flow, so the CC records sheet derives the three visible census rows from Traffic Census totals.
 - Excel formatting now follows the reference workbook closely, but Excel and LibreOffice may render chart typography/spacing with small application-specific differences.
 
 Next recommended task:
@@ -1181,7 +1181,10 @@ Sheet 1: Summary
 
 Sheet 2: CC records
 - Traffic census summary
-- Census / CC records table with a NIL placeholder until detailed CC records are captured
+- Census / CC records summary rows derived from Traffic Census totals
+
+Sheet 3: Hswim Weekly
+- Reserved worksheet tab matching the reference workbook
 ```
 
 Remaining report work is polish and hardening, including broader fixture coverage as more sample cases become available.

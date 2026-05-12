@@ -286,7 +286,7 @@ def test_upload_fixtures_download_excel_report(client, temp_store):
     )
 
     workbook = load_workbook(io.BytesIO(download.content))
-    assert workbook.sheetnames == ["Summary", "CC records"]
+    assert workbook.sheetnames == ["Summary", "CC records", "Hswim Weekly"]
 
     summary = workbook["Summary"]
     assert summary["D2"].value == "Trucks Weighed"
@@ -303,6 +303,10 @@ def test_upload_fixtures_download_excel_report(client, temp_store):
     assert summary["Q40"].fill.fgColor.rgb == "00000000"
     assert summary["P40"].value == "=Q30"
     assert summary._charts[0].x_axis.axPos == "b"
+    assert [
+        series.graphicalProperties.line.solidFill.srgbClr
+        for series in summary._charts[0].series
+    ] == ["4472C4", "ED7D31", "70AD47", "7030A0"]
 
     cc_records = workbook["CC records"]
     assert cc_records["B2"].value == "Total Traffic Census Summary"
