@@ -210,6 +210,21 @@ def assert_table_grids_fit_a4_printable_width(docx_bytes: bytes) -> None:
         assert sum(widths) <= A4_PRINTABLE_WIDTH_TWIPS
 
 
+def assert_docx_uses_bgwhite_logo(docx_bytes: bytes) -> None:
+    expected_logo = (Path("backend/app/assets/bgwhitelogo.png")).read_bytes()
+    app_logo = (Path("backend/app/assets/logo.png")).read_bytes()
+
+    with zipfile.ZipFile(io.BytesIO(docx_bytes)) as docx_zip:
+        media_files = [
+            docx_zip.read(name)
+            for name in docx_zip.namelist()
+            if name.startswith("word/media/")
+        ]
+
+    assert expected_logo in media_files
+    assert app_logo not in media_files
+
+
 def test_upload_fixtures_build_and_download_final_report(client, temp_store):
     report_id = create_report_session(client)
     upload_required_files(client, report_id)
@@ -245,6 +260,7 @@ def test_upload_fixtures_build_and_download_final_report(client, temp_store):
     )
     assert traffic_preview.status_code == 200
     assert docx_traffic_census_values(traffic_preview.content) == expected_traffic_values
+    assert_docx_uses_bgwhite_logo(traffic_preview.content)
 
     build_response = client.post(f"/api/report-sessions/{report_id}/build-final-report")
     assert build_response.status_code == 200
@@ -261,6 +277,7 @@ def test_upload_fixtures_build_and_download_final_report(client, temp_store):
     assert docx_traffic_census_values(download.content) == expected_traffic_values
     assert_a4_landscape_layout(download.content)
     assert_table_grids_fit_a4_printable_width(download.content)
+    assert_docx_uses_bgwhite_logo(download.content)
     assert (
         download.headers["content-type"]
         == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -312,7 +329,7 @@ def test_upload_fixtures_download_excel_report(client, temp_store):
     assert "H34:H35" in {str(merged) for merged in summary.merged_cells.ranges}
     assert "I34:I35" in {str(merged) for merged in summary.merged_cells.ranges}
     assert "J34:J35" in {str(merged) for merged in summary.merged_cells.ranges}
-    assert summary._charts[0].y_axis.scaling.min == -10
+    assert summary._charts[0].y_axis.scaling.min == 0
     assert summary._charts[0].y_axis.scaling.max == 300
     assert summary._charts[0].y_axis.majorUnit == 50
     assert summary._charts[0].x_axis.crosses == "min"
@@ -320,7 +337,7 @@ def test_upload_fixtures_download_excel_report(client, temp_store):
     assert [
         series.graphicalProperties.line.solidFill.srgbClr
         for series in summary._charts[0].series
-    ] == ["4472C4", "A0522D", "70AD47", "7030A0"]
+    ] == ["4472C4", "ED7D31", "A5A5A5", "FFC000"]
     assert summary["S48"].value == "Notes"
     assert summary["S48"].font.bold is True
     assert summary["S48"].font.sz == 20

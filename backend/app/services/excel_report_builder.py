@@ -692,7 +692,7 @@ def _add_daily_hour_chart(ws: Worksheet) -> None:
     chart.y_axis.numFmt = "General"
     chart.x_axis.txPr = _chart_axis_text_properties()
     chart.y_axis.txPr = _chart_axis_text_properties()
-    chart.y_axis.scaling.min = -10
+    chart.y_axis.scaling.min = 0
     chart.y_axis.scaling.max = 300
     chart.y_axis.majorUnit = 50
     chart.x_axis.crosses = "min"
@@ -713,7 +713,7 @@ def _add_daily_hour_chart(ws: Worksheet) -> None:
     chart.add_data(data, titles_from_data=True)
     chart.set_categories(categories)
 
-    colors = ["4472C4", "A0522D", "70AD47", "7030A0"]
+    colors = ["4472C4", "ED7D31", "A5A5A5", "FFC000"]
     for series, color in zip(chart.series, colors, strict=False):
         series.smooth = False
         series.graphicalProperties.line.solidFill = color

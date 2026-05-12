@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import datetime
 
 
-LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "logo.png"
+LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "bgwhitelogo.png"
 LETTER_LANDSCAPE_WIDTH_INCHES = 11.0
 LETTER_LANDSCAPE_HEIGHT_INCHES = 8.5
 TOP_MARGIN_INCHES = 0.5
