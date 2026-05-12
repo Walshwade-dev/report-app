@@ -241,3 +241,43 @@ def test_final_report_persistence_and_download_after_restart(
         download.headers["content-type"]
         == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
+
+
+def test_build_final_report_reports_missing_sections(client):
+    report_id = create_session(client)["report_id"]
+
+    response = client.post(f"/api/report-sessions/{report_id}/build-final-report")
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["missing_sections"] == [
+        "daily_hour",
+        "wideload",
+        "impounded_prohibited",
+        "overloaded",
+    ]
+    assert detail["session"]["final_report"]["status"] == "error"
+    assert "Missing or invalid required sections" in detail["message"]
+
+
+def test_build_final_report_reports_generator_errors(
+    client,
+    temp_store,
+    monkeypatch,
+):
+    report_id = create_session(client)["report_id"]
+    patch_manual_inputs(client, report_id)
+    seed_required_sections(temp_store, report_id)
+
+    def fail_build_final_report(**_kwargs):
+        raise RuntimeError("template failed")
+
+    monkeypatch.setattr(reports, "build_final_report", fail_build_final_report)
+
+    response = client.post(f"/api/report-sessions/{report_id}/build-final-report")
+
+    assert response.status_code == 500
+    detail = response.json()["detail"]
+    assert detail["message"] == "Failed to build final report"
+    assert detail["error"] == "template failed"
+    assert detail["session"]["final_report"]["status"] == "error"

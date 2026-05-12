@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -22,6 +23,7 @@ from app.templates import impounded_prohibited, vehicle_inspection
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class ReportSessionCreate(BaseModel):
@@ -479,7 +481,14 @@ async def build_report_session_final_report(report_id: str):
     if missing:
         message = f"Missing or invalid required sections: {missing}"
         updated = report_session_store.set_final_report_error(report_id, message)
-        return serialize_session(updated)
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": message,
+                "missing_sections": missing,
+                "session": serialize_session(updated),
+            },
+        )
 
     try:
         wideload_count = get_wideload_count_from_session(session)
@@ -509,8 +518,19 @@ async def build_report_session_final_report(report_id: str):
         return serialize_session(updated)
 
     except Exception as exc:
+        logger.exception(
+            "Failed to build final report for report session %s",
+            report_id,
+        )
         updated = report_session_store.set_final_report_error(report_id, str(exc))
-        return serialize_session(updated)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Failed to build final report",
+                "error": str(exc),
+                "session": serialize_session(updated),
+            },
+        )
 
 
 @router.get("/report-sessions/{report_id}/sections/{section_name}/preview")

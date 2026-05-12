@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import time
 from dataclasses import dataclass, field
@@ -16,7 +17,9 @@ from app.services.traffic_census_processor import normalize_traffic_census_input
 from app.services.transgressions_processor import normalize_transgressions_input
 
 
-STORAGE_ROOT = Path(__file__).resolve().parents[1] / "storage"
+STORAGE_ROOT = Path(
+    os.getenv("REPORT_STORAGE_ROOT", Path(__file__).resolve().parents[1] / "storage")
+)
 SESSIONS_DIR = STORAGE_ROOT / "sessions"
 UPLOADS_DIR = STORAGE_ROOT / "uploads"
 PROCESSED_DIR = STORAGE_ROOT / "processed"
