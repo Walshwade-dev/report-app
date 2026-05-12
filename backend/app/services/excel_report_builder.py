@@ -471,9 +471,12 @@ def _write_traffic_census_summary(ws: Worksheet, session, totals: dict[str, int]
     )
     _merge_and_set(ws, "F33:G33", "Total Traffic Census (K)", bold=True, border=MEDIUM_BORDER)
     _merge_and_set(ws, "F34:G35", " K=(J+V+W) ", bold=True, border=MEDIUM_BORDER)
-    _merge_and_set(ws, "H34:H35", "Exemption permits\n(E)", bold=True, border=MEDIUM_BORDER)
-    _merge_and_set(ws, "I34:I35", "Total Weighed \n(X)", bold=True, border=MEDIUM_BORDER)
-    _merge_and_set(ws, "J34:J35", "Total Traffic\n(T)= (Q+X+K+E)", bold=True, border=MEDIUM_BORDER)
+    _merge_and_set(ws, "H33:H34", "Exemption\npermits", bold=True, border=MEDIUM_BORDER)
+    _merge_and_set(ws, "I33:I34", "Total Weighed", bold=True, border=MEDIUM_BORDER)
+    _merge_and_set(ws, "J33:J34", "Total Traffic", bold=True, border=MEDIUM_BORDER)
+    _set_cell(ws, "H35", "(E)", bold=True, border=MEDIUM_BORDER)
+    _set_cell(ws, "I35", "(X)", bold=True, border=MEDIUM_BORDER)
+    _set_cell(ws, "J35", "(T)= (Q+X+K+E)", bold=True, border=MEDIUM_BORDER)
 
     no_left_medium = Border(
         left=NO_SIDE,
@@ -688,9 +691,12 @@ def _add_daily_hour_chart(ws: Worksheet) -> None:
     chart.y_axis.numFmt = "General"
     chart.x_axis.txPr = _chart_axis_text_properties()
     chart.y_axis.txPr = _chart_axis_text_properties()
-    chart.y_axis.scaling.min = 0
+    chart.y_axis.scaling.min = -10
     chart.y_axis.scaling.max = 300
     chart.y_axis.majorUnit = 50
+    chart.x_axis.crosses = "min"
+    chart.y_axis.crosses = "autoZero"
+    chart.y_axis.crossBetween = "between"
     chart.y_axis.majorGridlines = ChartLines()
     chart.legend.position = "b"
     chart.dataLabels = DataLabelList()
@@ -706,8 +712,9 @@ def _add_daily_hour_chart(ws: Worksheet) -> None:
     chart.add_data(data, titles_from_data=True)
     chart.set_categories(categories)
 
-    colors = ["4472C4", "ED7D31", "70AD47", "7030A0"]
+    colors = ["4472C4", "FF0000", "70AD47", "7030A0"]
     for series, color in zip(chart.series, colors, strict=False):
+        series.smooth = False
         series.graphicalProperties.line.solidFill = color
         series.graphicalProperties.line.width = 28575
 
@@ -719,14 +726,66 @@ def _add_daily_hour_chart(ws: Worksheet) -> None:
 
 
 def _write_reference_markers(ws: Worksheet) -> None:
-    for row, text in {
-        45: "Notes",
-        46: "yellow = data extracted from Kenload",
-        47: "red = formulae, do not edit",
-        48: "No fill = manual entries fill in from data collection forms/books",
-        49: "Data in the table is for illustration purposes ONLY",
-    }.items():
-        _merge_and_set(ws, f"S{row}:X{row}", text, border=None, horizontal="left")
+    start_row = 48
+    ws.row_dimensions[start_row].height = 15.0
+    ws.row_dimensions[start_row + 1].height = 15.75
+    ws.row_dimensions[start_row + 2].height = 15.75
+    ws.row_dimensions[start_row + 3].height = 15.75
+    ws.row_dimensions[start_row + 4].height = 15.0
+
+    _merge_and_set(
+        ws,
+        f"S{start_row}:X{start_row}",
+        "Notes",
+        size=12,
+        bold=True,
+        border=None,
+        horizontal="left",
+        vertical=None,
+        wrap_text=None,
+    )
+    _merge_and_set(
+        ws,
+        f"S{start_row + 1}:X{start_row + 1}",
+        "yellow = data extracted from Kenload",
+        size=12,
+        fill=YELLOW_FILL,
+        border=None,
+        horizontal="left",
+        vertical=None,
+        wrap_text=None,
+    )
+    _merge_and_set(
+        ws,
+        f"S{start_row + 2}:X{start_row + 2}",
+        "red = formulae, do not edit",
+        size=12,
+        fill=RED_FILL,
+        border=None,
+        horizontal="left",
+        vertical=None,
+        wrap_text=None,
+    )
+    _merge_and_set(
+        ws,
+        f"S{start_row + 3}:X{start_row + 3}",
+        "No fill = manual entries fill in from data collection forms/books",
+        size=12,
+        border=None,
+        horizontal="left",
+        vertical=None,
+        wrap_text=None,
+    )
+    _merge_and_set(
+        ws,
+        f"S{start_row + 4}:X{start_row + 4}",
+        "Data in the table is for illustration purposes ONLY",
+        size=12,
+        border=None,
+        horizontal="left",
+        vertical=None,
+        wrap_text=None,
+    )
 
 
 def _write_summary_sheet(ws: Worksheet, session) -> None:

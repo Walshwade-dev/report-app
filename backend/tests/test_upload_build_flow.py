@@ -292,6 +292,12 @@ def test_upload_fixtures_download_excel_report(client, temp_store):
     assert summary["D2"].value == "Trucks Weighed"
     assert summary["T2"].value == "TIME"
     assert summary["C33"].value == "Buses>= 3500kg  (J)"
+    assert summary["H33"].value == "Exemption\npermits"
+    assert summary["H35"].value == "(E)"
+    assert summary["I33"].value == "Total Weighed"
+    assert summary["I35"].value == "(X)"
+    assert summary["J33"].value == "Total Traffic"
+    assert summary["J35"].value == "(T)= (Q+X+K+E)"
     assert summary["B38"].value == "HSWIM CLEARED (Q)"
     assert len(summary._charts) == 1
     assert summary.column_dimensions["B"].width == 12.140625
@@ -303,10 +309,24 @@ def test_upload_fixtures_download_excel_report(client, temp_store):
     assert summary["Q40"].fill.fgColor.rgb == "00000000"
     assert summary["P40"].value == "=Q30"
     assert summary._charts[0].x_axis.axPos == "b"
+    assert "H33:H34" in {str(merged) for merged in summary.merged_cells.ranges}
+    assert "I33:I34" in {str(merged) for merged in summary.merged_cells.ranges}
+    assert "J33:J34" in {str(merged) for merged in summary.merged_cells.ranges}
+    assert summary._charts[0].y_axis.scaling.min == -10
+    assert summary._charts[0].y_axis.scaling.max == 300
+    assert summary._charts[0].y_axis.majorUnit == 50
+    assert summary._charts[0].x_axis.crosses == "min"
+    assert all(series.smooth is False for series in summary._charts[0].series)
     assert [
         series.graphicalProperties.line.solidFill.srgbClr
         for series in summary._charts[0].series
-    ] == ["4472C4", "ED7D31", "70AD47", "7030A0"]
+    ] == ["4472C4", "FF0000", "70AD47", "7030A0"]
+    assert summary["S48"].value == "Notes"
+    assert summary["S48"].font.bold is True
+    assert summary["S48"].alignment.horizontal == "left"
+    assert summary["S49"].fill.fgColor.rgb == "FFFFFF00"
+    assert summary["S50"].fill.fgColor.rgb == "FFFF0000"
+    assert summary["S51"].fill.fgColor.rgb == "00000000"
 
     cc_records = workbook["CC records"]
     assert cc_records["B2"].value == "Total Traffic Census Summary"
