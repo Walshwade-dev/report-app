@@ -5,3 +5,10 @@ services:
     branch: main
     rootDir: backend
     healthCheckPath: /health
+    envVars:
+      - key: REPORT_STORAGE_ROOT
+        value: /var/data/report-app-storage
+    disk:
+      name: report-app-storage
+      mountPath: /var/data
+      sizeGB: 1
