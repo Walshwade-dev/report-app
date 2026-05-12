@@ -320,13 +320,17 @@ def test_upload_fixtures_download_excel_report(client, temp_store):
     assert [
         series.graphicalProperties.line.solidFill.srgbClr
         for series in summary._charts[0].series
-    ] == ["4472C4", "ED7D31", "70AD47", "7030A0"]
+    ] == ["4472C4", "A0522D", "70AD47", "7030A0"]
     assert summary["S48"].value == "Notes"
     assert summary["S48"].font.bold is True
-    assert summary["S48"].alignment.horizontal == "left"
+    assert summary["S48"].font.sz == 20
+    assert summary["S48"].alignment.horizontal == "center"
+    assert summary["S48"].border.top.style == "medium"
     assert summary["S49"].fill.fgColor.rgb == "FFFFFF00"
     assert summary["S50"].fill.fgColor.rgb == "FFFF0000"
-    assert summary["S51"].fill.fgColor.rgb == "00000000"
+    assert summary["S51"].fill.fgColor.rgb == "FFD9D9D9"
+    assert summary["S52"].value == "Data in the table is for illustration purposes ONLY"
+    assert summary["S52"].border.top.style is None
 
     cc_records = workbook["CC records"]
     assert cc_records["B2"].value == "Total Traffic Census Summary"

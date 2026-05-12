@@ -31,6 +31,7 @@ NO_FILL = PatternFill(fill_type=None)
 YELLOW_FILL = PatternFill("solid", fgColor="FFFFFF00")
 RED_FILL = PatternFill("solid", fgColor="FFFF0000")
 GREEN_FILL = PatternFill("solid", fgColor="FF00B050")
+LIGHT_GRAY_FILL = PatternFill("solid", fgColor="FFD9D9D9")
 
 THIN_SIDE = Side(style="thin", color="000000")
 MEDIUM_SIDE = Side(style="medium", color="000000")
@@ -712,7 +713,7 @@ def _add_daily_hour_chart(ws: Worksheet) -> None:
     chart.add_data(data, titles_from_data=True)
     chart.set_categories(categories)
 
-    colors = ["4472C4", "ED7D31", "70AD47", "7030A0"]
+    colors = ["4472C4", "A0522D", "70AD47", "7030A0"]
     for series, color in zip(chart.series, colors, strict=False):
         series.smooth = False
         series.graphicalProperties.line.solidFill = color
@@ -727,7 +728,7 @@ def _add_daily_hour_chart(ws: Worksheet) -> None:
 
 def _write_reference_markers(ws: Worksheet) -> None:
     start_row = 48
-    ws.row_dimensions[start_row].height = 15.0
+    ws.row_dimensions[start_row].height = 33.0
     ws.row_dimensions[start_row + 1].height = 15.75
     ws.row_dimensions[start_row + 2].height = 15.75
     ws.row_dimensions[start_row + 3].height = 15.75
@@ -737,11 +738,11 @@ def _write_reference_markers(ws: Worksheet) -> None:
         ws,
         f"S{start_row}:X{start_row}",
         "Notes",
-        size=12,
+        size=20,
         bold=True,
-        border=None,
-        horizontal="left",
-        vertical=None,
+        border=MEDIUM_BORDER,
+        horizontal="center",
+        vertical="center",
         wrap_text=None,
     )
     _merge_and_set(
@@ -750,9 +751,9 @@ def _write_reference_markers(ws: Worksheet) -> None:
         "yellow = data extracted from Kenload",
         size=12,
         fill=YELLOW_FILL,
-        border=None,
+        border=MEDIUM_BORDER,
         horizontal="left",
-        vertical=None,
+        vertical="center",
         wrap_text=None,
     )
     _merge_and_set(
@@ -761,9 +762,9 @@ def _write_reference_markers(ws: Worksheet) -> None:
         "red = formulae, do not edit",
         size=12,
         fill=RED_FILL,
-        border=None,
+        border=MEDIUM_BORDER,
         horizontal="left",
-        vertical=None,
+        vertical="center",
         wrap_text=None,
     )
     _merge_and_set(
@@ -771,9 +772,10 @@ def _write_reference_markers(ws: Worksheet) -> None:
         f"S{start_row + 3}:X{start_row + 3}",
         "No fill = manual entries fill in from data collection forms/books",
         size=12,
-        border=None,
+        fill=LIGHT_GRAY_FILL,
+        border=MEDIUM_BORDER,
         horizontal="left",
-        vertical=None,
+        vertical="center",
         wrap_text=None,
     )
     _merge_and_set(
