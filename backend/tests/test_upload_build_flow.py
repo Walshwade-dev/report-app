@@ -320,7 +320,7 @@ def test_upload_fixtures_download_excel_report(client, temp_store):
     assert [
         series.graphicalProperties.line.solidFill.srgbClr
         for series in summary._charts[0].series
-    ] == ["4472C4", "FF0000", "70AD47", "7030A0"]
+    ] == ["4472C4", "ED7D31", "70AD47", "7030A0"]
     assert summary["S48"].value == "Notes"
     assert summary["S48"].font.bold is True
     assert summary["S48"].alignment.horizontal == "left"

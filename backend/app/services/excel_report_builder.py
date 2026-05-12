@@ -712,7 +712,7 @@ def _add_daily_hour_chart(ws: Worksheet) -> None:
     chart.add_data(data, titles_from_data=True)
     chart.set_categories(categories)
 
-    colors = ["4472C4", "FF0000", "70AD47", "7030A0"]
+    colors = ["4472C4", "ED7D31", "70AD47", "7030A0"]
     for series, color in zip(chart.series, colors, strict=False):
         series.smooth = False
         series.graphicalProperties.line.solidFill = color
