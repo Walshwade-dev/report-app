@@ -471,12 +471,12 @@ def _write_traffic_census_summary(ws: Worksheet, session, totals: dict[str, int]
     )
     _merge_and_set(ws, "F33:G33", "Total Traffic Census (K)", bold=True, border=MEDIUM_BORDER)
     _merge_and_set(ws, "F34:G35", " K=(J+V+W) ", bold=True, border=MEDIUM_BORDER)
-    _merge_and_set(ws, "H33:H34", "Exemption\npermits", bold=True, border=MEDIUM_BORDER)
-    _merge_and_set(ws, "I33:I34", "Total Weighed", bold=True, border=MEDIUM_BORDER)
-    _merge_and_set(ws, "J33:J34", "Total Traffic", bold=True, border=MEDIUM_BORDER)
-    _set_cell(ws, "H35", "(E)", bold=True, border=MEDIUM_BORDER)
-    _set_cell(ws, "I35", "(X)", bold=True, border=MEDIUM_BORDER)
-    _set_cell(ws, "J35", "(T)= (Q+X+K+E)", bold=True, border=MEDIUM_BORDER)
+    _set_cell(ws, "H33", "Exemption\npermits", bold=True, border=MEDIUM_BORDER)
+    _set_cell(ws, "I33", "Total Weighed", bold=True, border=MEDIUM_BORDER)
+    _set_cell(ws, "J33", "Total Traffic", bold=True, border=MEDIUM_BORDER)
+    _merge_and_set(ws, "H34:H35", "(E)", bold=True, border=MEDIUM_BORDER)
+    _merge_and_set(ws, "I34:I35", "(X)", bold=True, border=MEDIUM_BORDER)
+    _merge_and_set(ws, "J34:J35", "(T)= (Q+X+K+E)", bold=True, border=MEDIUM_BORDER)
 
     no_left_medium = Border(
         left=NO_SIDE,

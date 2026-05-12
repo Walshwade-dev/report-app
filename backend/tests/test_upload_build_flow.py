@@ -293,11 +293,11 @@ def test_upload_fixtures_download_excel_report(client, temp_store):
     assert summary["T2"].value == "TIME"
     assert summary["C33"].value == "Buses>= 3500kg  (J)"
     assert summary["H33"].value == "Exemption\npermits"
-    assert summary["H35"].value == "(E)"
+    assert summary["H34"].value == "(E)"
     assert summary["I33"].value == "Total Weighed"
-    assert summary["I35"].value == "(X)"
+    assert summary["I34"].value == "(X)"
     assert summary["J33"].value == "Total Traffic"
-    assert summary["J35"].value == "(T)= (Q+X+K+E)"
+    assert summary["J34"].value == "(T)= (Q+X+K+E)"
     assert summary["B38"].value == "HSWIM CLEARED (Q)"
     assert len(summary._charts) == 1
     assert summary.column_dimensions["B"].width == 12.140625
@@ -309,9 +309,9 @@ def test_upload_fixtures_download_excel_report(client, temp_store):
     assert summary["Q40"].fill.fgColor.rgb == "00000000"
     assert summary["P40"].value == "=Q30"
     assert summary._charts[0].x_axis.axPos == "b"
-    assert "H33:H34" in {str(merged) for merged in summary.merged_cells.ranges}
-    assert "I33:I34" in {str(merged) for merged in summary.merged_cells.ranges}
-    assert "J33:J34" in {str(merged) for merged in summary.merged_cells.ranges}
+    assert "H34:H35" in {str(merged) for merged in summary.merged_cells.ranges}
+    assert "I34:I35" in {str(merged) for merged in summary.merged_cells.ranges}
+    assert "J34:J35" in {str(merged) for merged in summary.merged_cells.ranges}
     assert summary._charts[0].y_axis.scaling.min == -10
     assert summary._charts[0].y_axis.scaling.max == 300
     assert summary._charts[0].y_axis.majorUnit == 50
