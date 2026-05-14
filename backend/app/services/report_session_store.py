@@ -35,6 +35,7 @@ def _default_sections() -> dict[str, dict[str, Any]]:
         "wideload": {"status": "missing"},
         "impounded_prohibited": {"status": "missing"},
         "overloaded": {"status": "missing"},
+        "mobile_report": {"status": "missing"},
         "traffic_census": {"status": "missing"},
         "daily_summary": {"status": "missing"},
         "transgressions": {"status": "missing"},
@@ -44,6 +45,13 @@ def _default_sections() -> dict[str, dict[str, Any]]:
 def _safe_filename(filename: str | None, fallback: str = "upload") -> str:
     safe = Path(filename or fallback).name.strip()
     return safe or fallback
+
+
+def _json_safe_value(value: Any) -> Any:
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat(sep=" ")
+
+    return value
 
 
 @dataclass
@@ -400,7 +408,13 @@ class ReportSessionStore:
             "filename": filename,
             "rows": int(len(dataframe)),
             "columns": dataframe.columns.tolist(),
-            "preview": preview_df.to_dict(orient="records"),
+            "preview": [
+                {
+                    key: _json_safe_value(value)
+                    for key, value in record.items()
+                }
+                for record in preview_df.to_dict(orient="records")
+            ],
         }
 
         if section in {"daily_hour", "wideload", "impounded_prohibited"}:

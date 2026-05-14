@@ -14,6 +14,12 @@ from app.services.daily_hour_processor import (
 )
 from app.services.excel_report_builder import build_excel_report
 from app.services.final_report_builder import build_final_report
+from app.services.mobile_excel_report_builder import build_mobile_excel_report
+from app.services.mobile_report_processor import (
+    mobile_report_response,
+    normalize_mobile_report,
+    summarize_mobile_report,
+)
 from app.services.overloaded_summary import count_valid_permit_vehicles
 from app.services.preview_renderer import get_cached_section_preview
 from app.services.report_session_metrics import get_wideload_count_from_session
@@ -62,6 +68,10 @@ def serialize_session(session: ReportSession) -> dict:
         "daily_hour" in session.dataframes
         and session.sections.get("daily_hour", {}).get("status") == "ready"
     )
+    mobile_excel_report_ready = (
+        "mobile_report" in session.dataframes
+        and session.sections.get("mobile_report", {}).get("status") == "ready"
+    )
     final_report = {
         "status": session.final_report_status,
         "download_url": None,
@@ -91,6 +101,14 @@ def serialize_session(session: ReportSession) -> dict:
             "download_url": (
                 f"/api/report-sessions/{session.report_id}/download-excel-report"
                 if excel_report_ready
+                else None
+            ),
+        },
+        "mobile_excel_report": {
+            "status": "ready" if mobile_excel_report_ready else "awaiting_data",
+            "download_url": (
+                f"/api/report-sessions/{session.report_id}/download-mobile-excel-report"
+                if mobile_excel_report_ready
                 else None
             ),
         },
@@ -459,7 +477,48 @@ async def upload_overloaded_file(report_id: str, file: UploadFile = File(...)):
             "message": str(exc),
         },
     )
-    
+
+
+@router.post("/report-sessions/{report_id}/uploads/mobile-report")
+async def upload_mobile_report_file(report_id: str, file: UploadFile = File(...)):
+    require_session(report_id)
+
+    try:
+        filename, content, raw_df = await read_upload_dataframe(file)
+        report_session_store.save_upload(
+            report_id,
+            "mobile_report",
+            filename,
+            content,
+        )
+        records = normalize_mobile_report(raw_df)
+        summary = summarize_mobile_report(records)
+
+        updated = report_session_store.set_section_ready(
+            report_id,
+            "mobile_report",
+            records,
+            filename=filename,
+            extra={"summary": summary},
+        )
+        payload = serialize_session(updated)
+        payload["mobile_report"] = mobile_report_response(raw_df)
+        return payload
+
+    except Exception as exc:
+        report_session_store.set_section_error(
+            report_id,
+            "mobile_report",
+            str(exc),
+        )
+
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "section": "mobile_report",
+                "message": str(exc),
+            },
+        )
 
 
 @router.post("/report-sessions/{report_id}/build-final-report")
@@ -607,4 +666,29 @@ async def download_report_session_excel_report(report_id: str):
         content=file_stream.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.get("/report-sessions/{report_id}/download-mobile-excel-report")
+async def download_report_session_mobile_excel_report(report_id: str):
+    session = require_session(report_id)
+
+    try:
+        file_stream = build_mobile_excel_report(session)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    filename = (
+        f"{session.station}_{session.bound}_{session.report_date}_mobile_report.xlsx"
+        .lower()
+        .replace(" ", "_")
+    )
+
+    return Response(
+        content=file_stream.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Content-Type-Options": "nosniff",
+        },
     )

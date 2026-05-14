@@ -19,6 +19,13 @@ from app.services.report_layout import (
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 WORD_NAMESPACE = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+CHART_NAMESPACE = {
+    "c": "http://schemas.openxmlformats.org/drawingml/2006/chart",
+    "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+}
+SPREADSHEET_NAMESPACE = {
+    "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+}
 
 
 def fixture_upload(name: str, content_type: str = "text/csv"):
@@ -108,6 +115,209 @@ def upload_required_files(client, report_id: str) -> None:
     overloaded_payload = overloaded.json()
     assert overloaded_payload["sections"]["overloaded"]["status"] == "ready"
     assert overloaded_payload["sections"]["overloaded"]["valid_permit_count"] == 1
+
+
+def test_mobile_report_upload_extracts_weighbridge_register(client):
+    report_id = create_report_session(client)
+
+    response = client.post(
+        f"/api/report-sessions/{report_id}/uploads/mobile-report",
+        files=fixture_upload("mobile_report.csv"),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    summary = payload["sections"]["mobile_report"]["summary"]
+
+    assert payload["sections"]["mobile_report"]["status"] == "ready"
+    assert summary["total_records"] == 4
+    assert summary["report_date"] == "2026-05-12"
+    assert summary["station"] == "JJM2"
+    assert summary["overloaded_records"] == 2
+    assert payload["mobile_report"]["data"][0]["registration"] == "KBW781J"
+    assert payload["mobile_report"]["data"][0]["total_gvw_kg"] == 37500
+    assert payload["mobile_report"]["data"][0]["gvw_difference_kg"] == 7500
+    assert payload["mobile_report"]["data"][0]["remarks"] == "CHARGED"
+    assert payload["mobile_excel_report"]["status"] == "ready"
+
+
+def test_mobile_report_downloads_mapped_excel_workbook(client):
+    report_id = create_report_session(client)
+
+    manual_response = client.patch(
+        f"/api/report-sessions/{report_id}/manual-inputs",
+        json={
+            "extra": {
+                "mobile_report": {
+                    "route": "westlands-parklands-ruiru-juja",
+                    "danka_staff": "dm duncan odhiambo",
+                    "police_officers": "cpl emason sautet",
+                    "mobile_vehicle": "kds042z",
+                    "mileage_start": 61267,
+                    "mileage_end": 61447,
+                    "cases_cleared_in_court": 3,
+                }
+            }
+        },
+    )
+    assert manual_response.status_code == 200
+
+    upload = client.post(
+        f"/api/report-sessions/{report_id}/uploads/mobile-report",
+        files=fixture_upload("mobile_report.csv"),
+    )
+    assert upload.status_code == 200
+
+    download = client.get(
+        f"/api/report-sessions/{report_id}/download-mobile-excel-report"
+    )
+    assert download.status_code == 200
+    assert (
+        download.headers["content-type"]
+        == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert download.headers["content-disposition"].endswith('_mobile_report.xlsx"')
+
+    workbook = load_workbook(io.BytesIO(download.content), data_only=False)
+    summary = workbook["Weigh & Hourly Summary"]
+    detail = workbook["Mobile Daily Report"]
+
+    assert summary["C5"].value.strftime("%d-%b-%y") == "12-May-26"
+    assert summary["E5"].value == 1
+    assert summary["G5"].value == 1
+    assert summary["H5"].value == 7500
+    assert summary["E11"].value == 3
+    assert summary["F11"].value == 1
+    assert summary["H33"].value == 3
+    assert len(summary._charts) == 1
+    assert summary["E5"].fill.fill_type is None
+    assert summary["D32"].fill.fill_type is None
+
+    assert detail["B6"].value.strftime("%d-%b-%y") == "12-May-26"
+    assert detail["I6"].value == 4
+    assert detail["J6"].value == 1
+    assert detail["J7"].value == 0
+    assert detail["K6"].value == 61267
+    assert detail["L6"].value == 61447
+    assert detail["M6"].value == "=L6-K6"
+    assert detail["N6"].value == "KDS042Z"
+
+    assert detail["C11"].value == "KBW781J"
+    assert detail["D11"].value == "OMAR HALEN."
+    assert detail["F11"].value == 7500
+    assert detail["G11"].value == 7500
+    assert detail["M11"].value == "CHARGED"
+    assert detail["N11"].value == "WESTLANDS-PARKLANDS-RUIRU-JUJA"
+    assert detail["B11"].number_format == "dd-mmm-yy"
+    assert detail["B5"].fill.fill_type is None
+    assert detail["B10"].fill.fill_type is None
+    assert detail["B10"].alignment.horizontal == "center"
+    assert detail["E6"].alignment.horizontal == "left"
+    assert detail["E6"].alignment.wrap_text is not True
+    assert detail["G6"].alignment.horizontal == "left"
+    assert detail["G6"].alignment.wrap_text is not True
+    assert detail["K11"].alignment.horizontal == "left"
+    assert detail["K11"].alignment.wrap_text is not True
+    assert detail["L11"].alignment.horizontal == "left"
+    assert detail["L11"].alignment.wrap_text is not True
+    assert detail["N11"].alignment.horizontal == "left"
+    assert detail["N11"].alignment.wrap_text is not True
+    assert detail.row_dimensions[1].height == 15.75
+    assert detail.row_dimensions[3].height == 14.25
+    assert detail.row_dimensions[4].height == 18.75
+    assert detail.row_dimensions[7].height == 15.75
+    assert detail.row_dimensions[8].height == 15.75
+
+    assert "N3:V30" in {str(range_) for range_ in summary.merged_cells.ranges}
+    assert "O33:T33" in {str(range_) for range_ in summary.merged_cells.ranges}
+    assert summary["O33"].value == "Red = formulae, do not edit"
+    assert summary["O33"].fill.fgColor.rgb == "FFFF0000"
+    assert summary["O33"].alignment.horizontal == "left"
+    chart = summary._charts[0]
+    assert chart.x_axis.axPos == "b"
+    assert chart.y_axis.crossBetween == "between"
+    assert chart.dataLabels.showVal is False
+    assert chart.dataLabels.showCatName is False
+    assert chart.dataLabels.showSerName is False
+    assert [series.smooth for series in chart.ser] == [False, False]
+    assert [series.graphicalProperties.line.width for series in chart.ser] == [
+        28575,
+        28575,
+    ]
+    assert [series.graphicalProperties.line.cap for series in chart.ser] == [
+        "rnd",
+        "rnd",
+    ]
+    assert [series.graphicalProperties.line.solidFill.srgbClr for series in chart.ser] == [
+        "1F4E79",
+        "800000",
+    ]
+
+    with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
+        chart_xml = ElementTree.fromstring(archive.read("xl/charts/chart1.xml"))
+        drawing_xml = ElementTree.fromstring(archive.read("xl/drawings/drawing1.xml"))
+        summary_xml = ElementTree.fromstring(archive.read("xl/worksheets/sheet1.xml"))
+
+    line_elements = chart_xml.findall(".//c:ser/c:spPr/a:ln", CHART_NAMESPACE)
+    assert len(line_elements) == 2
+    assert [line.attrib["w"] for line in line_elements] == ["28575", "28575"]
+    assert [line.attrib["cap"] for line in line_elements] == ["rnd", "rnd"]
+    assert all(line.find("a:round", CHART_NAMESPACE) is not None for line in line_elements)
+    color_values = [
+        color.attrib["val"]
+        for color in chart_xml.findall(".//c:ser/c:spPr/a:ln/a:solidFill/a:srgbClr", CHART_NAMESPACE)
+    ]
+    assert color_values == ["1F4E79", "800000"]
+    smooth_values = [
+        smooth.attrib["val"]
+        for smooth in chart_xml.findall(".//c:ser/c:smooth", CHART_NAMESPACE)
+    ]
+    assert smooth_values == ["0", "0"]
+    data_labels = chart_xml.find(".//c:dLbls", CHART_NAMESPACE)
+    assert data_labels is not None
+    for tag in [
+        "showLegendKey",
+        "showVal",
+        "showCatName",
+        "showSerName",
+        "showPercent",
+        "showBubbleSize",
+    ]:
+        element = data_labels.find(f"c:{tag}", CHART_NAMESPACE)
+        assert element is not None
+        assert element.attrib["val"] == "0"
+    category_axis_text = chart_xml.find(".//c:catAx/c:txPr", CHART_NAMESPACE)
+    assert category_axis_text is not None
+    body_pr = category_axis_text.find("a:bodyPr", CHART_NAMESPACE)
+    assert body_pr is not None
+    assert body_pr.attrib["rot"] == "-60000000"
+    chart_anchor_to = drawing_xml.find(
+        ".//{http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing}graphicFrame/.."
+        "/{http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing}to"
+    )
+    assert chart_anchor_to is not None
+    chart_to_column = chart_anchor_to.find(
+        "{http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing}col"
+    )
+    assert chart_to_column is not None
+    assert chart_to_column.text == "21"
+    for coordinate, key_text in {
+        "O33": "Red =",
+        "O34": "No fill =",
+        "O35": "Data =",
+    }.items():
+        cell = summary_xml.find(
+            f".//main:c[@r='{coordinate}']",
+            SPREADSHEET_NAMESPACE,
+        )
+        assert cell is not None
+        first_run = cell.find(".//main:r[1]", SPREADSHEET_NAMESPACE)
+        assert first_run is not None
+        bold = first_run.find("main:rPr/main:b", SPREADSHEET_NAMESPACE)
+        text = first_run.find("main:t", SPREADSHEET_NAMESPACE)
+        assert bold is not None
+        assert text is not None
+        assert text.text == key_text
 
 
 def assert_docx_preview(client, report_id: str, section_name: str) -> None:

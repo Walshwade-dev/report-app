@@ -3,6 +3,8 @@ from fastapi.responses import StreamingResponse
 import pandas as pd
 
 from app.services.cleaner_core import clean_with_template
+from app.services.mobile_report_processor import mobile_report_response
+from app.services.report_upload_service import read_upload_dataframe
 from app.services.wideload_generator import generate_wideload_report
 from app.templates import vehicle_inspection
 
@@ -10,6 +12,15 @@ from app.templates import impounded_prohibited
 from app.services.impounded_prohibited_generator import generate_impounded_prohibited_report
 
 router = APIRouter()
+
+
+@router.post("/process-mobile-report")
+async def process_mobile_report(file: UploadFile = File(...)):
+    try:
+        _, _, df = await read_upload_dataframe(file)
+        return mobile_report_response(df)
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @router.post("/process-file")

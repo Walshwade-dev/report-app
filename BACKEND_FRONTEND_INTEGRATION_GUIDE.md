@@ -17,11 +17,11 @@ This document should be updated after every backend implementation step. Each ti
 ### Current Status Snapshot
 
 ```text
-Status date: 2026-05-06
+Status date: 2026-05-14
 Backend framework: FastAPI
-Frontend: Not started in this repo
-Current backend mode: Section generators plus filesystem-backed report-session API
-Current integration mode: Frontend-facing upload/preview/build/download routes are wired for implemented sections with restart recovery
+Frontend: Separate Next.js frontend is being integrated with this backend API
+Current backend mode: Section generators plus filesystem-backed report-session API, including mobile/weighbridge register extraction
+Current integration mode: Frontend-facing upload/preview/build/download routes are wired for implemented sections with restart recovery; local frontend must target the local backend or the deployed backend must be updated
 ```
 
 ### Completed
@@ -30,6 +30,7 @@ Current integration mode: Frontend-facing upload/preview/build/download routes a
 FastAPI app entry point exists
 Upload router exists
 CSV/XLSX file reading exists for current upload endpoints
+CSV/XLSX upload reading removes repeated export header rows
 Shared template-based cleaning exists
 Wideload standalone report generation exists
 Impounded/prohibited standalone report generation exists
@@ -48,6 +49,17 @@ Daily/hour upload endpoint exists in report-session flow
 Wideload upload endpoint exists in report-session flow
 Impounded/prohibited upload endpoint exists in report-session flow
 Overloaded upload endpoint exists in report-session flow
+Mobile/weighbridge register upload endpoint exists in report-session flow
+Mobile/weighbridge register standalone extraction endpoint exists
+Mobile/weighbridge register Excel download endpoint exists in report-session flow
+Mobile Excel workbook chart styling matches the reference line graph scale, axis placement, line width, rounded line caps, and non-smoothed series
+Mobile Excel workbook chart and chart-border footprint are narrowed by roughly one quarter from the previous generated layout
+Mobile Excel workbook chart uses dark blue and maroon line colors instead of light blue and orange
+Mobile Excel workbook chart hides all point data labels and rotates axis labels like the reference
+Mobile Excel workbook Notes block is narrowed by roughly one quarter from the previous generated layout
+Mobile Excel workbook Notes block uses left-aligned key/value rows with bold key and equals sign
+Mobile Excel workbook detail-sheet personnel/officer/route cells are left aligned without wrapping
+Mobile Excel workbook row heights and chart area merge match the reference layout more closely
 Report-session uploads are persisted under backend/app/storage/uploads/
 Processed section DataFrames are persisted under backend/app/storage/processed/
 Report-session metadata is persisted under backend/app/storage/sessions/
@@ -57,6 +69,7 @@ Report sessions can be reloaded after browser refresh or backend restart
 Final report build endpoint exists for implemented sections
 Final report download endpoint exists
 Excel report download endpoint exists
+Mobile Excel report download endpoint exists
 Final report builder can include Sections 1, 2, 3, 4, 5, 6, and 7
 Section preview renderer exists
 Section preview endpoint exists
@@ -97,6 +110,8 @@ Preparing backend hardening tasks after completing report rendering
 
 ```text
 Broaden fixture-based upload tests if more sample cases become available
+Deploy the newer backend to Render, or point local frontend development at http://127.0.0.1:8000
+Decide how extracted mobile register values should feed the final DOCX report, if needed
 ```
 
 ### Implementation Log
@@ -130,41 +145,51 @@ Use this section as the running project history.
 2026-05-11 - Added report-session Excel workbook generation and download endpoint using processed session data.
 2026-05-11 - Updated Excel workbook generation to follow the Juja reference workbook layout, colors, dimensions, formulas, and embedded graph.
 2026-05-11 - Refined Excel workbook details: preserved worksheet gridlines, kept manual summary entry cells unfilled, restored CC three-row layout with green SUM totals, and adjusted chart axes/data labels.
+2026-05-13 - Added mobile/weighbridge register CSV/XLSX extraction for uploads with duplicated export header rows.
+2026-05-13 - Added mobile Excel workbook generation from extracted register rows with hourly summary mapping, manual route/officer/vehicle/mileage fields, and split charged KPI counts.
+2026-05-14 - Documented the frontend 404 root cause for mobile uploads: the local backend has /uploads/mobile-report, but the currently targeted deployed Render backend does not.
+2026-05-14 - Added the required local frontend API base URL setting: NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000.
+2026-05-14 - Refined the mobile Excel workbook to match the reference graph/table layout: bottom category axis, reference-like line width/caps, explicit non-smoothed series, merged chart area, reference row heights, and no-wrap left-aligned personnel/officer/route data.
+2026-05-14 - Updated the mobile Excel graph and Notes block from screenshot comparison: disabled all chart data labels, rotated category-axis labels, and merged the red formulae note across the full Notes width.
+2026-05-14 - Narrowed the mobile Excel chart and Notes block by about one quarter, changed graph series colors to dark blue/maroon, and made Notes rows left-aligned rich text with bold keys and equals signs.
 ```
 
 ### Latest Backend Implementation Step
 
 ```text
 Files changed:
-- backend/app/services/excel_report_builder.py
-- backend/app/routes/reports.py
+- backend/app/services/mobile_excel_report_builder.py
 - backend/tests/test_upload_build_flow.py
 - BACKEND_FRONTEND_INTEGRATION_GUIDE.md
 
 Behavior added:
-- Report sessions now expose excel_report.download_url once daily_hour data is ready.
-- GET /api/report-sessions/{report_id}/download-excel-report builds an XLSX workbook directly from processed session data.
-- The workbook contains Summary, CC records, and Hswim Weekly sheets.
-- Summary now follows the uploaded Juja workbook structure with fixed B:X table placement, matching row heights, column widths, merged cells, Arial fonts, yellow raw-data fills, red formula fills, and the daily/hour graph.
-- Manual Daily Summary entry cells for cases cleared in court, transgressions, and exemption permits weighed are left unfilled like the reference.
-- CC records follows the reference summary layout with matching title/header placement, three data rows, and green SUM total cells.
-- The line graph now keeps the category axis at the bottom, rotates axis labels, uses the reference blue/orange/green/purple series colors, and disables chart data labels to avoid labels covering the plot.
+- GET /api/report-sessions/{report_id}/download-mobile-excel-report now serves the refined mobile Excel workbook to the frontend.
+- The mobile workbook line graph now uses a reference-like chart area, bottom category axis, explicit axis crossing behavior, line width, rounded line caps, and `smooth=false` line series.
+- The chart border and embedded chart footprint are narrowed from `N3:X30` to `N3:V30`, with the chart anchor reduced accordingly.
+- The line graph series colors now use dark blue `#1F4E79` for WEIGHED and maroon `#800000` for CHARGED.
+- The mobile workbook line graph now suppresses all point labels and rotates axis labels to prevent label clutter.
+- The graph data scale continues to come from the generated hourly WEIGHED and CHARGED cells.
+- The Notes block is narrowed from `O32:V35` to `O32:T35`.
+- The Notes rows are left aligned and use rich text so the key plus equals sign is bold while the value remains normal text.
+- The mobile detail sheet now sets reference row heights for the top report block.
+- Danka personnel, police officer, route, transporter, cargo, origin, and destination data cells are left aligned with wrapping disabled so long entries stay on one line.
+- Vehicle dates and numeric excess fields remain centered with the existing `dd-mmm-yy` date format.
 
 Rationale:
-- The frontend needs an Excel download without converting the DOCX report.
-- Generating the workbook from session data keeps the Excel feature separate from final DOCX generation while reusing the same processed values.
+- The generated mobile workbook needed to visually match the provided Juja Mobile reference workbook, especially the hourly line graph and long personnel/officer text entries.
+- Keeping the refinement inside `build_mobile_excel_report()` means the existing frontend download URL receives the corrected workbook without a frontend API change.
 
 Tests and verification:
-- Upload-through-build API test now downloads the Excel report, checks the Excel MIME type, opens it with openpyxl, and asserts required sheets, reference labels, row/column dimensions, fill colors, manual unfilled cells, CC green formula totals, and chart axis placement.
+- Updated the mobile Excel workbook API test to assert reference row heights, narrowed chart-area merge, narrowed Notes rows, rich-text bold key/value note entries, left-aligned no-wrap personnel/officer/route cells, chart axis placement, dark blue/maroon series colors, hidden chart labels, rotated category-axis labels, line width, rounded line caps, and `smooth=false` chart XML.
 - `backend/venv/bin/python -m compileall backend/app` passes.
 - `PYTHONPATH=backend MPLCONFIGDIR=/tmp/matplotlib-cache backend/venv/bin/python -m pytest backend/tests -vv` passes.
 
 Limitations:
-- Detailed CC records are not captured by the current upload flow, so the CC records sheet derives the three visible census rows from Traffic Census totals.
-- Excel formatting now follows the reference workbook closely, but Excel and LibreOffice may render chart typography/spacing with small application-specific differences.
+- Mobile report extraction is available to the API and session store, and a separate mobile Excel workbook can be downloaded. It is not yet rendered into the final DOCX report.
+- The current summary classifies overloads from non-empty Excess or positive Excess [KG]; any station-specific action mapping can be added once those business rules are confirmed.
 
 Next recommended task:
-- Add a detailed CC records input/upload flow when the source data becomes available.
+- Visually inspect a downloaded workbook in Excel or LibreOffice after frontend upload to confirm the rendered chart matches the reference application view.
 ```
 
 ## Backend Folder Tree
@@ -193,6 +218,8 @@ backend/
 │   │   ├── excel_report_builder.py
 │   │   ├── final_report_builder.py
 │   │   ├── impounded_prohibited_generator.py
+│   │   ├── mobile_excel_report_builder.py
+│   │   ├── mobile_report_processor.py
 │   │   ├── overloaded_summary.py
 │   │   ├── preview_renderer.py
 │   │   ├── report_context.py
@@ -221,8 +248,11 @@ backend/
 │   ├── fixtures/
 │   │   ├── daily_hour.csv
 │   │   ├── impounded_prohibited.csv
+│   │   ├── mobile_report.csv
+│   │   ├── mobile_report_worked.csv
 │   │   ├── overloaded.csv
 │   │   └── wideload.csv
+│   ├── test_mobile_report_processor.py
 │   ├── test_report_session_api.py
 │   ├── test_storage_cleanup.py
 │   └── test_upload_build_flow.py
@@ -241,6 +271,8 @@ __pycache__/
 backend/venv/
 backend/app/storage/
 ```
+
+Note: `backend/app/storage/` is runtime state. It should stay out of git and can be rebuilt by uploading files through the report-session API.
 
 Recommended future backend layout:
 
@@ -298,28 +330,34 @@ The app includes routes from:
 
 ```text
 backend/app/routes/upload.py
+backend/app/routes/reports.py
 ```
 
 Current API routes:
 
 ```text
 POST /api/process-file
+POST /api/process-mobile-report
 POST /api/download-wideload-report
 POST /api/download-impounded-prohibited-report
 POST /api/report-sessions
 GET /api/report-sessions/{report_id}
+GET /api/report-sessions/{report_id}/summary-cards
+PATCH /api/report-sessions/{report_id}/metadata
 PATCH /api/report-sessions/{report_id}/manual-inputs
 POST /api/report-sessions/{report_id}/uploads/daily-hour
 POST /api/report-sessions/{report_id}/uploads/wideload
 POST /api/report-sessions/{report_id}/uploads/impounded-prohibited
 POST /api/report-sessions/{report_id}/uploads/overloaded
+POST /api/report-sessions/{report_id}/uploads/mobile-report
 POST /api/report-sessions/{report_id}/build-final-report
 GET /api/report-sessions/{report_id}/sections/{section_name}/preview
 GET /api/report-sessions/{report_id}/download-final-report
 GET /api/report-sessions/{report_id}/download-excel-report
+GET /api/report-sessions/{report_id}/download-mobile-excel-report
 ```
 
-At the moment, the backend can clean uploaded data, generate standalone Word reports for wideload and impounded/prohibited sections, and create filesystem-backed report sessions for the frontend workflow. Daily/hour data, wideload data, impounded/prohibited data, and overloaded data can now be uploaded into a report session and recovered from disk by `report_id`. Manual report inputs can be stored for prepared by, confirmed by, weighbridge name, traffic census, cases cleared in court, transgressions count, and transgressions. Traffic Census manual input is validated and can be rendered as Section 3. Daily Summary is derived from ready source sections and can be rendered as Section 4. Transgressions manual input is normalized and can be rendered as Section 5 with NIL rows when either table has no records. Section previews are available for daily/hour, traffic census, daily summary, transgressions, wideload, and impounded/prohibited sections as cached PNG, PDF, or DOCX artifacts. The final report can be built, persisted, recovered, and downloaded for the currently implemented sections. The Excel report can be downloaded directly from processed session data when daily/hour data is ready.
+At the moment, the backend can clean uploaded data, generate standalone Word reports for wideload and impounded/prohibited sections, extract vehicle-level mobile/weighbridge register uploads, build the separate mobile Excel workbook, and create filesystem-backed report sessions for the frontend workflow. Daily/hour data, wideload data, impounded/prohibited data, overloaded data, and mobile/weighbridge register data can now be uploaded into a report session and recovered from disk by `report_id`. Manual report inputs can be stored for prepared by, confirmed by, weighbridge name, traffic census, cases cleared in court, transgressions count, transgressions, and extra mobile-report workbook fields. Traffic Census manual input is validated and can be rendered as Section 3. Daily Summary is derived from ready source sections and can be rendered as Section 4. Transgressions manual input is normalized and can be rendered as Section 5 with NIL rows when either table has no records. Section previews are available for daily/hour, traffic census, daily summary, transgressions, wideload, and impounded/prohibited sections as cached PNG, PDF, or DOCX artifacts. The final report can be built, persisted, recovered, and downloaded for the currently implemented sections. The main Excel report can be downloaded directly from processed session data when daily/hour data is ready. The mobile Excel report can be downloaded after a successful mobile/weighbridge register upload.
 
 ## Current File Responsibilities
 
@@ -342,11 +380,22 @@ Implemented:
 
 ```text
 POST /api/process-file
+POST /api/process-mobile-report
 POST /api/download-wideload-report
 POST /api/download-impounded-prohibited-report
 ```
 
 This file now remains as the legacy/standalone upload route module. New frontend report-builder work should use `reports.py`.
+
+The mobile-report extraction route accepts the weighbridge register CSV/XLSX export shape:
+
+```text
+NO, id, Date Time, Ticket No., Station, Registration, Axle, Transporter,
+Cargo, Make, Origin, Destination, Deck A[KG], Deck B[KG], Deck C[KG],
+Deck D[KG], GVW [KG], Excess, Excess [KG], Status, State, Mismatch
+```
+
+It removes repeated header rows, parses `Date Time` with day-first dates, normalizes weights/counts, and returns extracted rows plus summary values.
 
 ### `backend/app/routes/reports.py`
 
@@ -357,15 +406,19 @@ Implemented:
 ```text
 POST /api/report-sessions
 GET /api/report-sessions/{report_id}
+GET /api/report-sessions/{report_id}/summary-cards
+PATCH /api/report-sessions/{report_id}/metadata
 PATCH /api/report-sessions/{report_id}/manual-inputs
 POST /api/report-sessions/{report_id}/uploads/daily-hour
 POST /api/report-sessions/{report_id}/uploads/wideload
 POST /api/report-sessions/{report_id}/uploads/impounded-prohibited
 POST /api/report-sessions/{report_id}/uploads/overloaded
+POST /api/report-sessions/{report_id}/uploads/mobile-report
 POST /api/report-sessions/{report_id}/build-final-report
 GET /api/report-sessions/{report_id}/sections/{section_name}/preview
 GET /api/report-sessions/{report_id}/download-final-report
 GET /api/report-sessions/{report_id}/download-excel-report
+GET /api/report-sessions/{report_id}/download-mobile-excel-report
 ```
 
 This module stores report state through `report_session_store.py`. The API response shape remains session-oriented, while metadata and generated artifacts are now persisted under `backend/app/storage/` so sessions can be recovered by `report_id`.
@@ -842,6 +895,46 @@ PYTHONPATH=backend MPLCONFIGDIR=/tmp/matplotlib-cache backend/venv/bin/python -m
 
 The API tests use temporary filesystem storage, so they do not write to `backend/app/storage/`.
 
+## Frontend API Target
+
+The local frontend must call the same backend version that contains the routes it is using. The mobile upload route exists in this local backend:
+
+```text
+POST http://127.0.0.1:8000/api/report-sessions/{report_id}/uploads/mobile-report
+```
+
+If `frontend/.env.local` is empty, the frontend currently falls back to the deployed Render backend:
+
+```text
+https://report-app-px6c.onrender.com
+```
+
+That deployed backend can return this error if it has not been updated with the newer mobile route:
+
+```text
+POST https://report-app-px6c.onrender.com/api/report-sessions/{id}/uploads/mobile-report
+HTTP 404
+{"detail":"Not Found"}
+```
+
+For local frontend development, create or update `frontend/.env.local` in the frontend project:
+
+```env
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+```
+
+Then restart the Next.js dev server so `NEXT_PUBLIC_API_BASE_URL` is re-read. The frontend should then call:
+
+```text
+http://127.0.0.1:8000/api/report-sessions/{id}/uploads/mobile-report
+```
+
+For deployed frontend usage, deploy this newer backend to Render and confirm the deployed API exposes the mobile route before pointing the frontend back at:
+
+```text
+https://report-app-px6c.onrender.com
+```
+
 ### 1. Create A Report Session
 
 Frontend endpoint:
@@ -1043,7 +1136,32 @@ The backend computes valid_permit_count using count_valid_permit_vehicles().
 No visual section preview is generated for overloaded data yet.
 ```
 
-### 7. Preview Sections
+### 7. Upload Mobile/Weighbridge Register File
+
+Frontend endpoint:
+
+```text
+POST /api/report-sessions/{report_id}/uploads/mobile-report
+```
+
+Form data:
+
+```text
+file: mobile/weighbridge register CSV/XLSX
+```
+
+Current behavior:
+
+```text
+The backend removes duplicated export header rows.
+The backend extracts vehicle-level register rows.
+The backend stores mobile_report data on the report session.
+The backend marks mobile_report as ready when extraction succeeds.
+The backend enables GET /api/report-sessions/{report_id}/download-mobile-excel-report.
+No DOCX section preview is generated for mobile_report yet.
+```
+
+### 8. Preview Sections
 
 Frontend can render PNG previews directly in an image tag.
 
@@ -1073,7 +1191,7 @@ GET /api/report-sessions/{report_id}/sections/wideload/preview?format=pdf
 GET /api/report-sessions/{report_id}/sections/impounded-prohibited/preview?format=docx
 ```
 
-### 8. Build Final Report
+### 9. Build Final Report
 
 Frontend endpoint:
 
@@ -1114,7 +1232,7 @@ If build succeeds:
 }
 ```
 
-### 9. Download Final Report
+### 10. Download Final Report
 
 Frontend endpoint:
 
@@ -1145,7 +1263,7 @@ A4 landscape is the canonical final report page size
 Fixture-generated report output has been visually inspected after DOCX-to-PDF conversion
 ```
 
-### 10. Download Excel Report
+### 11. Download Excel Report
 
 Frontend endpoint:
 
@@ -1186,6 +1304,22 @@ Sheet 2: CC records
 Sheet 3: Hswim Weekly
 - Reserved worksheet tab matching the reference workbook
 ```
+
+### 12. Download Mobile Excel Report
+
+Frontend endpoint:
+
+```text
+GET /api/report-sessions/{report_id}/download-mobile-excel-report
+```
+
+The frontend can use:
+
+```js
+`${API_BASE}/api/report-sessions/${reportId}/download-mobile-excel-report`
+```
+
+The serialized session includes `mobile_excel_report.status === "ready"` and a `download_url` after a successful mobile/weighbridge register upload.
 
 Remaining report work is polish and hardening, including broader fixture coverage as more sample cases become available.
 
@@ -1597,10 +1731,21 @@ type ReportBuilderState = {
     impoundedProhibited: SectionState;
     wideload: SectionState;
     overloaded: SectionState;
+    mobileReport: SectionState;
   };
   finalReport: {
     status: "not_ready" | "ready_to_build" | "building" | "ready" | "error";
     previewUrl?: string;
+    downloadUrl?: string;
+    error?: string;
+  };
+  excelReport: {
+    status: "awaiting_data" | "ready" | "error";
+    downloadUrl?: string;
+    error?: string;
+  };
+  mobileExcelReport: {
+    status: "awaiting_data" | "ready" | "error";
     downloadUrl?: string;
     error?: string;
   };
@@ -1642,6 +1787,7 @@ Daily Hour Statistics CSV/XLSX
 Wideload / Vehicle Inspection CSV/XLSX
 Impounded & Prohibited CSV/XLSX
 Overloaded CSV/XLSX
+Mobile / Weighbridge Register CSV/XLSX for the separate mobile Excel workbook
 ```
 
 Future uploads:
