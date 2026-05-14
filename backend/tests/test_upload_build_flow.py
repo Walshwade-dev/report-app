@@ -4,6 +4,7 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from docx import Document
+from docx.enum.section import WD_ORIENT
 from openpyxl import load_workbook
 
 from app.services.report_layout import (
@@ -139,6 +140,7 @@ def test_mobile_report_upload_extracts_weighbridge_register(client):
     assert payload["mobile_report"]["data"][0]["gvw_difference_kg"] == 7500
     assert payload["mobile_report"]["data"][0]["remarks"] == "CHARGED"
     assert payload["mobile_excel_report"]["status"] == "ready"
+    assert payload["mobile_word_report"]["status"] == "ready"
 
 
 def test_mobile_report_downloads_mapped_excel_workbook(client):
@@ -318,6 +320,130 @@ def test_mobile_report_downloads_mapped_excel_workbook(client):
         assert bold is not None
         assert text is not None
         assert text.text == key_text
+
+
+def test_mobile_report_downloads_mapped_word_document(client):
+    report_id = create_report_session(client)
+
+    manual_response = client.patch(
+        f"/api/report-sessions/{report_id}/manual-inputs",
+        json={
+            "prepared_by": "Fredrick Kariuki",
+            "confirmed_by": "Faith Njani",
+            "extra": {
+                "mobile_report": {
+                    "route": "westlands-parklands-ruiru-juja",
+                    "danka_staff": "dm duncan odhiambo",
+                    "police_officers": "cpl emason sautet",
+                    "mobile_vehicle": "kds042z",
+                    "mileage_start": 61267,
+                    "mileage_end": 61447,
+                    "cases_cleared_in_court": 3,
+                }
+            },
+        },
+    )
+    assert manual_response.status_code == 200
+
+    upload = client.post(
+        f"/api/report-sessions/{report_id}/uploads/mobile-report",
+        files=fixture_upload("mobile_report.csv"),
+    )
+    assert upload.status_code == 200
+    assert upload.json()["mobile_word_report"]["download_url"].endswith(
+        "/download-mobile-word-report"
+    )
+
+    download = client.get(
+        f"/api/report-sessions/{report_id}/download-mobile-word-report"
+    )
+
+    assert download.status_code == 200
+    assert (
+        download.headers["content-type"]
+        == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    assert download.headers["content-disposition"].endswith('_mobile_report.docx"')
+    assert download.content.startswith(b"PK")
+
+    document = Document(io.BytesIO(download.content))
+
+    assert len(document.sections) == 10
+    assert document.sections[0].orientation == WD_ORIENT.PORTRAIT
+    assert all(
+        section.orientation == WD_ORIENT.LANDSCAPE
+        for section in document.sections[1:]
+    )
+    assert len(document.tables) == 9
+
+    assert any(
+        paragraph.text == "DAILY AND HOURLY STATISTICS"
+        for paragraph in document.paragraphs
+    )
+    assert any(
+        paragraph.text == "Prepared by: Fredrick Kariuki"
+        for paragraph in document.paragraphs
+    )
+    assert any(
+        paragraph.text == "Approved by: Faith Njani"
+        for paragraph in document.paragraphs
+    )
+
+    daily_stats = document.tables[0]
+    assert len(daily_stats.rows) == 27
+    assert len(daily_stats.columns) == 6
+    assert daily_stats.cell(0, 0).text == "Date"
+    assert daily_stats.cell(2, 0).text == "12-MAY-26"
+    assert daily_stats.cell(2, 1).text == "0000-0100"
+    assert daily_stats.cell(2, 2).text == "1"
+    assert daily_stats.cell(2, 4).text == "1"
+    assert daily_stats.cell(26, 1).text == "Total"
+
+    hourly_data = document.tables[1]
+    assert len(hourly_data.rows) == 26
+    assert len(hourly_data.columns) == 3
+    assert hourly_data.cell(0, 1).text == "WEIGHED"
+    assert hourly_data.cell(1, 0).text == "0000-0100"
+
+    daily_summary = document.tables[2]
+    assert daily_summary.cell(0, 0).text == "Total Weighed (X)"
+    assert daily_summary.cell(1, 0).text == "4"
+    assert daily_summary.cell(1, 4).text == "3"
+
+    details = document.tables[6]
+    assert len(details.rows) == 6
+    assert details.cell(0, 0).text == "DATE WEIGHED"
+    assert details.cell(0, 4).text == "EXCESS   WEIGHT"
+    assert details.cell(1, 4).text == "GVW"
+    assert details.cell(2, 0).text == "12-May-26"
+    assert details.cell(2, 1).text == "KBW781J"
+    assert details.cell(2, 2).text == "OMAR HALEN."
+    assert details.cell(2, 4).text == "7,500"
+    assert details.cell(2, 9).text == "DM DUNCAN ODHIAMBO"
+    assert details.cell(2, 10).text == "CPL EMASON SAUTET"
+
+    charged_over_two = document.tables[7]
+    assert len(charged_over_two.rows) == 3
+    assert charged_over_two.cell(2, 1).text == "KBW781J"
+
+    mileage = document.tables[8]
+    assert mileage.cell(0, 0).text == "MILEAGE START"
+    assert mileage.cell(1, 0).text == "61,267"
+    assert mileage.cell(1, 1).text == "61,447"
+    assert mileage.cell(1, 2).text == "180"
+    assert mileage.cell(1, 3).text == "KDS042Z"
+
+    assert any(
+        "ACTUAL ROUTE:" in paragraph.text
+        and "WESTLANDS-PARKLANDS-RUIRU-JUJA" in paragraph.text
+        for paragraph in document.paragraphs
+    )
+
+    with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
+        media_files = [
+            name for name in archive.namelist() if name.startswith("word/media/")
+        ]
+    assert media_files
 
 
 def assert_docx_preview(client, report_id: str, section_name: str) -> None:

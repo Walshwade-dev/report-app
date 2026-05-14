@@ -52,6 +52,9 @@ Overloaded upload endpoint exists in report-session flow
 Mobile/weighbridge register upload endpoint exists in report-session flow
 Mobile/weighbridge register standalone extraction endpoint exists
 Mobile/weighbridge register Excel download endpoint exists in report-session flow
+Mobile/weighbridge register Word download endpoint exists in report-session flow
+Mobile Word report builder exists with portrait first page and landscape continuation sections
+Mobile Word report includes daily/hour tables, chart image, summary, NIL transgression tables, vehicle details, charged-above-2-tonnes table, mileage table, and route/personnel notes
 Mobile Excel workbook chart styling matches the reference line graph scale, axis placement, line width, rounded line caps, and non-smoothed series
 Mobile Excel workbook chart and chart-border footprint are narrowed by roughly one quarter from the previous generated layout
 Mobile Excel workbook chart uses dark blue and maroon line colors instead of light blue and orange
@@ -70,6 +73,7 @@ Final report build endpoint exists for implemented sections
 Final report download endpoint exists
 Excel report download endpoint exists
 Mobile Excel report download endpoint exists
+Mobile Word report download endpoint exists
 Final report builder can include Sections 1, 2, 3, 4, 5, 6, and 7
 Section preview renderer exists
 Section preview endpoint exists
@@ -111,7 +115,7 @@ Preparing backend hardening tasks after completing report rendering
 ```text
 Broaden fixture-based upload tests if more sample cases become available
 Deploy the newer backend to Render, or point local frontend development at http://127.0.0.1:8000
-Decide how extracted mobile register values should feed the final DOCX report, if needed
+Visually tune the generated mobile Word report after reviewing a downloaded sample in Word or LibreOffice
 ```
 
 ### Implementation Log
@@ -152,44 +156,301 @@ Use this section as the running project history.
 2026-05-14 - Refined the mobile Excel workbook to match the reference graph/table layout: bottom category axis, reference-like line width/caps, explicit non-smoothed series, merged chart area, reference row heights, and no-wrap left-aligned personnel/officer/route data.
 2026-05-14 - Updated the mobile Excel graph and Notes block from screenshot comparison: disabled all chart data labels, rotated category-axis labels, and merged the red formulae note across the full Notes width.
 2026-05-14 - Narrowed the mobile Excel chart and Notes block by about one quarter, changed graph series colors to dark blue/maroon, and made Notes rows left-aligned rich text with bold keys and equals signs.
+2026-05-14 - Added mobile Word report generation and download endpoint using uploaded mobile register data and mobile manual inputs.
 ```
 
 ### Latest Backend Implementation Step
 
 ```text
 Files changed:
-- backend/app/services/mobile_excel_report_builder.py
+- backend/app/services/mobile_word_report_builder.py
+- backend/app/routes/reports.py
 - backend/tests/test_upload_build_flow.py
 - BACKEND_FRONTEND_INTEGRATION_GUIDE.md
 
 Behavior added:
-- GET /api/report-sessions/{report_id}/download-mobile-excel-report now serves the refined mobile Excel workbook to the frontend.
-- The mobile workbook line graph now uses a reference-like chart area, bottom category axis, explicit axis crossing behavior, line width, rounded line caps, and `smooth=false` line series.
-- The chart border and embedded chart footprint are narrowed from `N3:X30` to `N3:V30`, with the chart anchor reduced accordingly.
-- The line graph series colors now use dark blue `#1F4E79` for WEIGHED and maroon `#800000` for CHARGED.
-- The mobile workbook line graph now suppresses all point labels and rotates axis labels to prevent label clutter.
-- The graph data scale continues to come from the generated hourly WEIGHED and CHARGED cells.
-- The Notes block is narrowed from `O32:V35` to `O32:T35`.
-- The Notes rows are left aligned and use rich text so the key plus equals sign is bold while the value remains normal text.
-- The mobile detail sheet now sets reference row heights for the top report block.
-- Danka personnel, police officer, route, transporter, cargo, origin, and destination data cells are left aligned with wrapping disabled so long entries stay on one line.
-- Vehicle dates and numeric excess fields remain centered with the existing `dd-mmm-yy` date format.
+- GET /api/report-sessions/{report_id}/download-mobile-word-report builds and returns a mobile Word report.
+- Serialized report sessions now include `mobile_word_report.status` and `mobile_word_report.download_url` when mobile_report data is ready.
+- The mobile Word report creates 10 DOCX sections: the first is portrait and the remaining sections are landscape.
+- The generated document contains nine tables matching the sample flow: daily/hour statistics, hourly data, daily summary, three NIL transgression tables, all vehicle details, charged-above-2-tonnes details, and mileage/location.
+- The report embeds a generated daily hourly line chart image from uploaded mobile register hourly counts.
+- Vehicle detail rows are mapped from normalized mobile register records.
+- Mileage, route, Danka personnel, police officer, prepared by, and approved by fields come from report-session manual inputs.
 
 Rationale:
-- The generated mobile workbook needed to visually match the provided Juja Mobile reference workbook, especially the hourly line graph and long personnel/officer text entries.
-- Keeping the refinement inside `build_mobile_excel_report()` means the existing frontend download URL receives the corrected workbook without a frontend API change.
+- The frontend needs a stable DOCX endpoint for the mobile report, separate from the mobile Excel workbook and from the main static weighbridge final report.
+- Keeping the mobile Word builder separate lets the report preserve the sample's portrait-first-page and landscape continuation layout without affecting existing final report generation.
 
 Tests and verification:
-- Updated the mobile Excel workbook API test to assert reference row heights, narrowed chart-area merge, narrowed Notes rows, rich-text bold key/value note entries, left-aligned no-wrap personnel/officer/route cells, chart axis placement, dark blue/maroon series colors, hidden chart labels, rotated category-axis labels, line width, rounded line caps, and `smooth=false` chart XML.
+- Added API coverage for /download-mobile-word-report.
+- The mobile Word test verifies DOCX MIME type, 10 sections, portrait first section, landscape remaining sections, nine tables, embedded chart image, mapped hourly values, mapped vehicle details, charged-above-2-tonnes filtering, mileage fields, and route/personnel notes.
 - `backend/venv/bin/python -m compileall backend/app` passes.
 - `PYTHONPATH=backend MPLCONFIGDIR=/tmp/matplotlib-cache backend/venv/bin/python -m pytest backend/tests -vv` passes.
 
 Limitations:
-- Mobile report extraction is available to the API and session store, and a separate mobile Excel workbook can be downloaded. It is not yet rendered into the final DOCX report.
+- Mobile report extraction is available to the API and session store, and separate mobile Excel and Word reports can be downloaded.
 - The current summary classifies overloads from non-empty Excess or positive Excess [KG]; any station-specific action mapping can be added once those business rules are confirmed.
+- The mobile Word report now follows the sample structure and data mapping. Further polish can tune exact row heights, margins, and typography after visual review in Word or LibreOffice.
 
 Next recommended task:
-- Visually inspect a downloaded workbook in Excel or LibreOffice after frontend upload to confirm the rendered chart matches the reference application view.
+- Point the frontend mobile Word download button/link at /api/report-sessions/{report_id}/download-mobile-word-report and visually inspect a downloaded sample.
+```
+
+## Mobile Word Report Sample Analysis
+
+Sample analyzed:
+
+```text
+/home/ace/Downloads/mobile reports/Juja Mobile Daily Report_2 06.05.2026.docx
+```
+
+The mobile Word report is a separate report shape from the main static weighbridge report. It should be generated from the uploaded mobile/weighbridge register data plus the existing mobile manual inputs used by the mobile Excel workbook.
+
+### Document Structure
+
+```text
+Sections: 10
+Tables: 9
+Embedded images: 1
+```
+
+Page orientation and margins:
+
+```text
+Section 1: Portrait, Letter size, 8.5 x 11 in
+- Margins: top 1.0 in, bottom 1.0 in, left about 0.63 in, right 1.25 in
+
+Sections 2-10: Landscape, Letter size, 11 x 8.5 in
+- Margins: top 0.75 in, bottom 0.0 in, left 0.5 in, right 0.0 in
+```
+
+Important implementation point:
+
+```text
+The Word builder must create a portrait first section, then start a new landscape section for the rest of the report.
+```
+
+### Page And Section Flow
+
+The sample document body is ordered like this:
+
+```text
+1. DAILY AND HOURLY STATISTICS
+   - Table: 27 rows x 6 columns
+   - Prepared by / Approved by lines
+   - Portrait section
+
+2. DAILY HOURLY DATA
+   - Table: 26 rows x 3 columns
+   - Embedded line chart image
+   - Landscape section
+
+3. 3.0 daily summary
+   - Table: 2 rows x 8 columns
+   - Landscape section
+
+4. TRANSGRESSION
+   - Table: 2 rows x 11 columns
+   - NIL row when no records exist
+   - Landscape section
+
+5. TRANSGRESSION REPORT
+   - Table: 2 rows x 12 columns
+   - NIL row when no records exist
+   - Landscape section
+
+6. NUMBER plates removed
+   - Table: 2 rows x 12 columns
+   - NIL row when no records exist
+   - Landscape section
+
+7. DETAILS OF VEHICLES
+   - Table: 17 rows x 12 columns in the sample
+   - Two header rows, then one row per mobile register record
+   - Landscape section
+
+8. CHARGED ABOVE 2 TONNES ON GVW
+   - Table: 3 rows x 12 columns in the sample
+   - Two header rows, then filtered vehicle rows
+   - Landscape section
+
+9. LOCATION REPORT
+   - Table: 4 rows x 4 columns
+   - Mileage start, mileage end, KMS, and mobile vehicle
+   - Landscape section
+
+10. Route / personnel / police officer notes
+   - ACTUAL ROUTE paragraph
+   - DANKA PERSONNEL paragraph(s)
+   - POLICE OFFICERS paragraph(s)
+   - Landscape section
+```
+
+### Field Mapping From Existing Data
+
+Current source data:
+
+```text
+session.dataframes["mobile_report"]
+session.sections["mobile_report"]["summary"]
+session.manual_inputs["mobile_report"]
+```
+
+The existing normalized mobile record fields map to the Word report as follows:
+
+```text
+date_time -> DATE WEIGHED / report date / hourly buckets
+registration -> VEHICLE REG
+transporter -> TRANSPORTER
+axle -> CONFIG.
+gvw_difference_kg -> EXCESS WEIGHT / GVW when positive, otherwise "-"
+excess_kg -> EXCESS WEIGHT / AXLE when positive, otherwise "-"
+origin -> ORIGIN
+destination -> DESTIN.
+cargo -> CARGO
+remarks -> REMARKS
+hour_band -> Daily/hour tables and chart
+is_weighed -> Trucks Weighed counts
+is_gvw_axle_charge or is_dimension_charge -> Charged & Prohibited counts
+remarks == "WARNED" -> Warned Trucks counts
+```
+
+Manual mobile inputs should map as follows:
+
+```text
+prepared_by -> Prepared by line
+confirmed_by or approved_by -> Approved by line
+mobile_report.danka_staff -> COMPUTER OPERATOR (DANKA STAFF), DANKA PERSONNEL notes
+mobile_report.police_officers -> OFFICER, POLICE OFFICERS notes
+mobile_report.route -> ACTUAL ROUTE notes
+mobile_report.mileage_start -> MILEAGE START
+mobile_report.mileage_end -> MILEAGE END
+mobile_report.mobile_vehicle -> MOBILE VEHICLE
+mobile_report.cases_cleared_in_court -> Cases Cleared in Court (B)
+mobile_report.transgressions_count or transgressions manual input -> Transgressions (L)
+mobile_report.exempted_permit -> Exempted permit (E)
+mobile_report.manually_weighed -> Manually Weighed (M)
+```
+
+### Table Layout Notes
+
+Daily/hour statistics table:
+
+```text
+Rows: 27
+Columns: 6
+Headers:
+- Date
+- Time
+- Trucks Weighed
+- Warned Trucks
+- Charged & Prohibited Trucks
+- Excess Weight / GVW (KGS)
+
+Rows:
+- 24 hourly rows
+- Total row
+```
+
+Daily hourly data table:
+
+```text
+Rows: 26
+Columns: 3
+Headers:
+- blank time column
+- WEIGHED
+- CHARGED & PROHIBITED
+
+Rows:
+- 24 hourly rows
+- Total row
+```
+
+Daily summary table:
+
+```text
+Rows: 2
+Columns: 8
+Headers:
+- Total Weighed (X)
+- Warned & Charged (Y)
+- Charged & Prohibited (Z)
+- Warned (A)
+- Cases Cleared in Court (B)
+- Transgressions (L)
+- Exempted permit (E)
+- Manually Weighed (M)
+```
+
+Vehicle detail table:
+
+```text
+Rows:
+- Header row 1
+- Header row 2 with GVW / AXLE under EXCESS WEIGHT
+- One row per mobile register record
+
+Columns:
+- DATE WEIGHED
+- VEHICLE REG
+- TRANSPORTER
+- CONFIG.
+- EXCESS WEIGHT / GVW
+- EXCESS WEIGHT / AXLE
+- ORIGIN
+- DESTIN.
+- CARGO
+- COMPUTER OPERATOR (DANKA STAFF)
+- OFFICER
+- REMARKS
+```
+
+Charged above 2 tonnes table:
+
+```text
+Same columns as DETAILS OF VEHICLES.
+Filter recommendation:
+- Include records where gvw_difference_kg > 2000 and the record is charged.
+- If no rows match, render a NIL row or an empty body row, depending on final business preference.
+```
+
+### Implemented Builder Work
+
+Implemented files:
+
+```text
+backend/app/services/mobile_word_report_builder.py
+backend/tests/test_upload_build_flow.py
+```
+
+Frontend-facing endpoint:
+
+```text
+GET /api/report-sessions/{report_id}/download-mobile-word-report
+```
+
+Serialized session field:
+
+```json
+{
+  "mobile_word_report": {
+    "status": "ready",
+    "download_url": "/api/report-sessions/{report_id}/download-mobile-word-report"
+  }
+}
+```
+
+The implementation verifies:
+
+```text
+The first DOCX section is portrait.
+All later sections are landscape.
+The report contains the expected nine tables.
+The daily/hour tables derive values from hourly mobile upload records.
+The vehicle details table contains all uploaded mobile records.
+The charged-above-2-tonnes table filters charged records with GVW excess over 2000 kg.
+The mileage and route/personnel sections use mobile manual inputs.
 ```
 
 ## Backend Folder Tree
@@ -219,6 +480,7 @@ backend/
 │   │   ├── final_report_builder.py
 │   │   ├── impounded_prohibited_generator.py
 │   │   ├── mobile_excel_report_builder.py
+│   │   ├── mobile_word_report_builder.py
 │   │   ├── mobile_report_processor.py
 │   │   ├── overloaded_summary.py
 │   │   ├── preview_renderer.py
@@ -298,6 +560,9 @@ backend/
 │   │   ├── wideload_generator.py
 │   │   ├── impounded_prohibited_generator.py
 │   │   ├── overloaded_summary.py
+│   │   ├── mobile_excel_report_builder.py
+│   │   ├── mobile_word_report_builder.py
+│   │   ├── mobile_report_processor.py
 │   │   ├── traffic_census_processor.py
 │   │   ├── traffic_census_generator.py
 │   │   ├── daily_summary_generator.py
@@ -355,9 +620,10 @@ GET /api/report-sessions/{report_id}/sections/{section_name}/preview
 GET /api/report-sessions/{report_id}/download-final-report
 GET /api/report-sessions/{report_id}/download-excel-report
 GET /api/report-sessions/{report_id}/download-mobile-excel-report
+GET /api/report-sessions/{report_id}/download-mobile-word-report
 ```
 
-At the moment, the backend can clean uploaded data, generate standalone Word reports for wideload and impounded/prohibited sections, extract vehicle-level mobile/weighbridge register uploads, build the separate mobile Excel workbook, and create filesystem-backed report sessions for the frontend workflow. Daily/hour data, wideload data, impounded/prohibited data, overloaded data, and mobile/weighbridge register data can now be uploaded into a report session and recovered from disk by `report_id`. Manual report inputs can be stored for prepared by, confirmed by, weighbridge name, traffic census, cases cleared in court, transgressions count, transgressions, and extra mobile-report workbook fields. Traffic Census manual input is validated and can be rendered as Section 3. Daily Summary is derived from ready source sections and can be rendered as Section 4. Transgressions manual input is normalized and can be rendered as Section 5 with NIL rows when either table has no records. Section previews are available for daily/hour, traffic census, daily summary, transgressions, wideload, and impounded/prohibited sections as cached PNG, PDF, or DOCX artifacts. The final report can be built, persisted, recovered, and downloaded for the currently implemented sections. The main Excel report can be downloaded directly from processed session data when daily/hour data is ready. The mobile Excel report can be downloaded after a successful mobile/weighbridge register upload.
+At the moment, the backend can clean uploaded data, generate standalone Word reports for wideload and impounded/prohibited sections, extract vehicle-level mobile/weighbridge register uploads, build the separate mobile Excel workbook, build the separate mobile Word report, and create filesystem-backed report sessions for the frontend workflow. Daily/hour data, wideload data, impounded/prohibited data, overloaded data, and mobile/weighbridge register data can now be uploaded into a report session and recovered from disk by `report_id`. Manual report inputs can be stored for prepared by, confirmed by, weighbridge name, traffic census, cases cleared in court, transgressions count, transgressions, and extra mobile-report workbook/Word fields. Traffic Census manual input is validated and can be rendered as Section 3. Daily Summary is derived from ready source sections and can be rendered as Section 4. Transgressions manual input is normalized and can be rendered as Section 5 with NIL rows when either table has no records. Section previews are available for daily/hour, traffic census, daily summary, transgressions, wideload, and impounded/prohibited sections as cached PNG, PDF, or DOCX artifacts. The final report can be built, persisted, recovered, and downloaded for the currently implemented sections. The main Excel report can be downloaded directly from processed session data when daily/hour data is ready. The mobile Excel and mobile Word reports can be downloaded after a successful mobile/weighbridge register upload.
 
 ## Current File Responsibilities
 
@@ -419,6 +685,7 @@ GET /api/report-sessions/{report_id}/sections/{section_name}/preview
 GET /api/report-sessions/{report_id}/download-final-report
 GET /api/report-sessions/{report_id}/download-excel-report
 GET /api/report-sessions/{report_id}/download-mobile-excel-report
+GET /api/report-sessions/{report_id}/download-mobile-word-report
 ```
 
 This module stores report state through `report_session_store.py`. The API response shape remains session-oriented, while metadata and generated artifacts are now persisted under `backend/app/storage/` so sessions can be recovered by `report_id`.
@@ -856,15 +1123,7 @@ Impounded/prohibited section
 Wideload section
 ```
 
-It does not yet include:
-
-```text
-Daily summary
-Transgressions
-All final report sections in correct order
-```
-
-This file should become the main backend assembly point for the final downloadable report.
+This file is the main backend assembly point for the final downloadable weighbridge report. The separate mobile Word report is generated by `mobile_word_report_builder.py`.
 
 ## How To Test The Backend Now
 
@@ -1158,7 +1417,8 @@ The backend extracts vehicle-level register rows.
 The backend stores mobile_report data on the report session.
 The backend marks mobile_report as ready when extraction succeeds.
 The backend enables GET /api/report-sessions/{report_id}/download-mobile-excel-report.
-No DOCX section preview is generated for mobile_report yet.
+The backend enables GET /api/report-sessions/{report_id}/download-mobile-word-report.
+No DOCX section preview is generated for mobile_report yet; the full mobile Word report is downloaded through the mobile Word endpoint.
 ```
 
 ### 8. Preview Sections
@@ -1320,6 +1580,33 @@ The frontend can use:
 ```
 
 The serialized session includes `mobile_excel_report.status === "ready"` and a `download_url` after a successful mobile/weighbridge register upload.
+
+### 13. Download Mobile Word Report
+
+Frontend endpoint:
+
+```text
+GET /api/report-sessions/{report_id}/download-mobile-word-report
+```
+
+The frontend can use:
+
+```js
+`${API_BASE}/api/report-sessions/${reportId}/download-mobile-word-report`
+```
+
+The serialized session includes:
+
+```json
+{
+  "mobile_word_report": {
+    "status": "ready",
+    "download_url": "/api/report-sessions/{report_id}/download-mobile-word-report"
+  }
+}
+```
+
+The endpoint returns a `.docx` mobile report after a successful mobile/weighbridge register upload. The generated document follows the sample shape: page one is portrait, the remaining sections are landscape, and it includes daily/hour statistics, hourly data plus chart, daily summary, NIL transgression tables, vehicle details, charged-above-2-tonnes details, mileage/location, and route/personnel notes.
 
 Remaining report work is polish and hardening, including broader fixture coverage as more sample cases become available.
 
@@ -1749,6 +2036,11 @@ type ReportBuilderState = {
     downloadUrl?: string;
     error?: string;
   };
+  mobileWordReport: {
+    status: "awaiting_data" | "ready" | "error";
+    downloadUrl?: string;
+    error?: string;
+  };
 };
 
 type SectionState = {
@@ -1787,7 +2079,7 @@ Daily Hour Statistics CSV/XLSX
 Wideload / Vehicle Inspection CSV/XLSX
 Impounded & Prohibited CSV/XLSX
 Overloaded CSV/XLSX
-Mobile / Weighbridge Register CSV/XLSX for the separate mobile Excel workbook
+Mobile / Weighbridge Register CSV/XLSX for the separate mobile Excel workbook and mobile Word report
 ```
 
 Future uploads:

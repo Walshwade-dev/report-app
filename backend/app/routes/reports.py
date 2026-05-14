@@ -20,6 +20,7 @@ from app.services.mobile_report_processor import (
     normalize_mobile_report,
     summarize_mobile_report,
 )
+from app.services.mobile_word_report_builder import build_mobile_word_report
 from app.services.overloaded_summary import count_valid_permit_vehicles
 from app.services.preview_renderer import get_cached_section_preview
 from app.services.report_session_metrics import get_wideload_count_from_session
@@ -72,6 +73,7 @@ def serialize_session(session: ReportSession) -> dict:
         "mobile_report" in session.dataframes
         and session.sections.get("mobile_report", {}).get("status") == "ready"
     )
+    mobile_word_report_ready = mobile_excel_report_ready
     final_report = {
         "status": session.final_report_status,
         "download_url": None,
@@ -109,6 +111,14 @@ def serialize_session(session: ReportSession) -> dict:
             "download_url": (
                 f"/api/report-sessions/{session.report_id}/download-mobile-excel-report"
                 if mobile_excel_report_ready
+                else None
+            ),
+        },
+        "mobile_word_report": {
+            "status": "ready" if mobile_word_report_ready else "awaiting_data",
+            "download_url": (
+                f"/api/report-sessions/{session.report_id}/download-mobile-word-report"
+                if mobile_word_report_ready
                 else None
             ),
         },
@@ -687,6 +697,31 @@ async def download_report_session_mobile_excel_report(report_id: str):
     return Response(
         content=file_stream.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.get("/report-sessions/{report_id}/download-mobile-word-report")
+async def download_report_session_mobile_word_report(report_id: str):
+    session = require_session(report_id)
+
+    try:
+        file_stream = build_mobile_word_report(session)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    filename = (
+        f"{session.station}_{session.bound}_{session.report_date}_mobile_report.docx"
+        .lower()
+        .replace(" ", "_")
+    )
+
+    return Response(
+        content=file_stream.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "X-Content-Type-Options": "nosniff",
