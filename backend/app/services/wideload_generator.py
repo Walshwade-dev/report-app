@@ -121,11 +121,16 @@ def add_wideload_section(doc: Document, df: pd.DataFrame):
     heading = doc.add_paragraph()
     heading.paragraph_format.space_before = Pt(8)
     heading.paragraph_format.space_after = Pt(0)
-    run = heading.add_run("7. VEHICLE INSPECTION REPORT (WIDE LOADS)")
-    run.bold = True
-    run.underline = True
-    run.font.name = "Arial"
-    run.font.size = Pt(11)
+    run_num = heading.add_run("7. ")
+    run_num.bold = True
+    run_num.font.name = "Arial"
+    run_num.font.size = Pt(11)
+
+    run_text = heading.add_run("VEHICLE INSPECTION REPORT (WIDE LOADS)")
+    run_text.bold = True
+    run_text.underline = True
+    run_text.font.name = "Arial"
+    run_text.font.size = Pt(11)
 
     columns = list(df.columns)
     widths = get_column_widths(columns)

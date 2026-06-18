@@ -64,6 +64,27 @@ def daily_display_date(report_date: str) -> str:
         return report_date
 
 
+def format_filename_date(date_str: str) -> str:
+    parts = date_str.split("-")
+    if len(parts) == 3:
+        year = parts[0][-2:]
+        month = parts[1]
+        day = parts[2]
+        return f"{day}.{month}.{year}"
+    return date_str
+
+
+def get_report_filename(session: ReportSession, ext: str) -> str:
+    station_name = (session.station or "STATION").upper()
+    if "WEIGHBRIDGE" not in station_name:
+        station_name = f"{station_name} WEIGHBRIDGE"
+    bound_name = (session.bound or "BOUND").upper()
+    if "BOUND" not in bound_name:
+        bound_name = f"{bound_name} BOUND"
+    date_part = format_filename_date(session.report_date)
+    return f"{station_name} {bound_name} DAILY REPORT {date_part}.{ext}"
+
+
 def serialize_session(session: ReportSession) -> dict:
     excel_report_ready = (
         "daily_hour" in session.dataframes
@@ -203,22 +224,39 @@ def summary_card(title: str, value: int | None, source: str) -> dict:
 def build_summary_cards(session: ReportSession) -> dict:
     wideload_count = get_wideload_count_from_session(session)
 
+    x_total = daily_hour_total_column(session, "X")
+    y_total = daily_hour_total_column(session, "Y")
+    g_total = daily_hour_total_column(session, "G")
+    c_total = daily_hour_total_column(session, "C")
+    z_total = daily_hour_total_column(session, "Z")
+    r_total = daily_hour_total_column(session, "R")
+
     return {
         "report_id": session.report_id,
+        "station": session.station,
+        "bound": session.bound,
+        "weighbridge_name": session.weighbridge_name,
+        "x_total": x_total if x_total is not None else 0,
+        "y_total": y_total if y_total is not None else 0,
+        "g_total": g_total if g_total is not None else 0,
+        "c_total": c_total if c_total is not None else 0,
+        "z_total": z_total if z_total is not None else 0,
+        "r_total": r_total if r_total is not None else 0,
+        "cases_cleared": session.manual_inputs.get("cases_cleared_in_court", 0) or 0,
         "cards": [
             summary_card(
                 "Total Weighed",
-                daily_hour_total_column(session, "X"),
+                x_total,
                 "daily_hour.totals.X",
             ),
             summary_card(
                 "Total Overloaded",
-                daily_hour_total_column(session, "Y"),
+                y_total,
                 "daily_hour.totals.Y",
             ),
             summary_card(
                 "Special Released",
-                daily_hour_total_column(session, "G"),
+                g_total,
                 "daily_hour.totals.G",
             ),
             summary_card(
@@ -249,6 +287,20 @@ async def create_report_session(payload: ReportSessionCreate):
         confirmed_by=payload.confirmed_by,
     )
     return serialize_session(session)
+
+
+@router.get("/report-sessions")
+async def list_report_sessions():
+    sessions = []
+    for metadata_path in sorted(report_session_store.sessions_dir.glob("*.json")):
+        report_id = metadata_path.stem
+        try:
+            session = report_session_store.get(report_id)
+            if session:
+                sessions.append(serialize_session(session))
+        except Exception:
+            pass
+    return sessions
 
 
 @router.get("/report-sessions/{report_id}")
@@ -638,16 +690,36 @@ async def download_report_session_final_report(report_id: str):
     if session.final_report is None:
         raise HTTPException(status_code=404, detail="Final report is not ready")
 
-    filename = (
-        f"{session.station}_{session.bound}_{session.report_date}_daily_report.docx"
-        .lower()
-        .replace(" ", "_")
-    )
+    filename = get_report_filename(session, "docx")
 
     return Response(
         content=session.final_report,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.get("/report-sessions/{report_id}/download-pdf-report")
+async def download_report_session_pdf_report(report_id: str):
+    import io
+    from app.services.preview_renderer import convert_docx_to_pdf
+    session = require_session(report_id)
+
+    if session.final_report is None:
+        raise HTTPException(status_code=404, detail="Final report is not ready")
+
+    docx_filename = get_report_filename(session, "docx")
+    docx_stream = io.BytesIO(session.final_report)
+
+    try:
+        pdf_bytes, pdf_filename = convert_docx_to_pdf(docx_stream, docx_filename)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"PDF conversion failed: {str(exc)}") from exc
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={pdf_filename}"},
     )
 
 
@@ -666,11 +738,7 @@ async def download_report_session_excel_report(report_id: str):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    filename = (
-        f"{session.station}_{session.bound}_{session.report_date}_daily_report.xlsx"
-        .lower()
-        .replace(" ", "_")
-    )
+    filename = get_report_filename(session, "xlsx")
 
     return Response(
         content=file_stream.getvalue(),
@@ -688,11 +756,7 @@ async def download_report_session_mobile_excel_report(report_id: str):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    filename = (
-        f"{session.station}_{session.bound}_{session.report_date}_mobile_report.xlsx"
-        .lower()
-        .replace(" ", "_")
-    )
+    filename = get_report_filename(session, "xlsx")
 
     return Response(
         content=file_stream.getvalue(),
@@ -713,11 +777,7 @@ async def download_report_session_mobile_word_report(report_id: str):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    filename = (
-        f"{session.station}_{session.bound}_{session.report_date}_mobile_report.docx"
-        .lower()
-        .replace(" ", "_")
-    )
+    filename = get_report_filename(session, "docx")
 
     return Response(
         content=file_stream.getvalue(),

@@ -92,7 +92,7 @@ def _font(
     *,
     name: str = FONT_NAME,
 ) -> Font:
-    return Font(name=name, size=size, bold=bold)
+    return Font(name=name, size=size, bold=bold, color="000000")
 
 
 def _alignment(

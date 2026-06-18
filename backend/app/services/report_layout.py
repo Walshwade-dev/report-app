@@ -78,13 +78,16 @@ def add_header(section):
         run.add_picture(str(LOGO_PATH), width=Inches(1.5))
 
 
-def format_report_date(date_str):
-    dt = datetime.strptime(date_str, "%Y-%m-%d")
-
-    day = dt.day
-    suffix = "th" if 11 <= day <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
-
-    return dt.strftime(f"%-d{suffix} %B %Y")
+def get_report_date_parts(date_str):
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        day = dt.day
+        suffix = "th" if 11 <= day <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+        day_str = str(day)
+        month_year_str = dt.strftime(" %B %Y")
+        return day_str, suffix, month_year_str
+    except Exception:
+        return date_str, "", ""
 
 
 def style_footer_run(run):
@@ -126,18 +129,35 @@ def add_footer(section, report_date, station, bound):
     paragraph.clear()
     paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
 
-    # Format date (example: 02nd February 2026)
-    formatted_date = format_report_date(report_date)
+    day_str, suffix, month_year_str = get_report_date_parts(report_date)
 
-    footer_text_before_pages = (
+    station_name = station.upper()
+    if "WEIGHBRIDGE" not in station_name:
+        station_name = f"{station_name} WEIGHBRIDGE"
+    bound_name = bound.upper()
+    if "BOUND" not in bound_name:
+        bound_name = f"{bound_name} BOUND"
+
+    # Prefix run up to day number
+    prefix = (
         "KeNHA/WB/MTCE/4339/2025        "
-        f"{station.upper()} WEIGHBRIDGE {bound.upper()} DAILY REPORT {formatted_date}        "
-        "Page "
+        f"{station_name} {bound_name} DAILY REPORT {day_str}"
     )
+    run_prefix = paragraph.add_run(prefix)
+    style_footer_run(run_prefix)
 
-    run = paragraph.add_run(footer_text_before_pages)
-    style_footer_run(run)
+    # Superscripted suffix run
+    if suffix:
+        run_suffix = paragraph.add_run(suffix)
+        style_footer_run(run_suffix)
+        run_suffix.font.superscript = True
+
+    # Mid run containing month/year and page prefix
+    mid_text = f"{month_year_str}        Page "
+    run_mid = paragraph.add_run(mid_text)
+    style_footer_run(run_mid)
+
     add_field(paragraph, "PAGE")
-    run = paragraph.add_run(" of ")
-    style_footer_run(run)
+    run_end = paragraph.add_run(" of ")
+    style_footer_run(run_end)
     add_field(paragraph, "NUMPAGES")

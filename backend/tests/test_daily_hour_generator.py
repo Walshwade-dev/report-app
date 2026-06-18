@@ -40,5 +40,5 @@ def test_daily_hour_statistics_data_rows_are_taller_with_bold_date_time_cells():
     assert first_data_row.height == Pt(12.6)
     assert date_run.bold is False
     assert time_run.bold is True
-    assert date_run.font.size == Pt(9)
+    assert date_run.font.size == Pt(8)
     assert time_run.font.size == Pt(8)

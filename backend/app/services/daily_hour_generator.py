@@ -5,16 +5,9 @@ from docx.enum.table import (
     WD_CELL_VERTICAL_ALIGNMENT,
     WD_ROW_HEIGHT_RULE,
 )
-from docx.shared import Inches, Pt
+from docx.shared import Pt
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from app.services.report_layout import (
-    FONT_NAME,
-    SECTION_TITLE_SIZE,
-    SUBHEADING_SIZE,
-    TABLE_HEADER_SIZE,
-    TABLE_BODY_SIZE,
-)
 import pandas as pd
 
 from app.services.report_layout import A4_TABLE_WIDTH_TWIPS
@@ -256,7 +249,7 @@ def add_daily_hour_statistics_section(doc: Document, daily_df: pd.DataFrame):
             style_cell(cell, font_size=7, bold=True)
 
     # data rows INCLUDING totals row
-    for _, row in daily_df.iterrows():
+    for idx, row in daily_df.iterrows():
         row_obj = table.add_row()
         row_obj.height = Pt(12.6)
         row_obj.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
@@ -279,7 +272,10 @@ def add_daily_hour_statistics_section(doc: Document, daily_df: pd.DataFrame):
             is_time_cell = i == 1
 
             if is_date_cell:
-                font_size = 9
+                if idx == 0:
+                    font_size = 8
+                else:
+                    font_size = 9
                 bold = is_total_row
             elif is_time_cell:
                 font_size = 8

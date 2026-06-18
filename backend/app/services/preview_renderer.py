@@ -101,7 +101,7 @@ def build_section_preview_docx(
         daily_df = session.dataframes[section]
         add_daily_hour_statistics_section(doc, daily_df)
         doc.add_page_break()
-        add_daily_hour_chart_section(doc, daily_df)
+        add_daily_hour_chart_section(doc, daily_df, is_preview=True)
         filename = "daily_hour_preview.docx"
 
     elif section == "wideload":

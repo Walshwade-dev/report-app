@@ -178,7 +178,7 @@ def test_mobile_report_downloads_mapped_excel_workbook(client):
         download.headers["content-type"]
         == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-    assert download.headers["content-disposition"].endswith('_mobile_report.xlsx"')
+    assert download.headers["content-disposition"].endswith('.xlsx"')
 
     workbook = load_workbook(io.BytesIO(download.content), data_only=False)
     summary = workbook["Weigh & Hourly Summary"]
@@ -363,7 +363,7 @@ def test_mobile_report_downloads_mapped_word_document(client):
         download.headers["content-type"]
         == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
-    assert download.headers["content-disposition"].endswith('_mobile_report.docx"')
+    assert download.headers["content-disposition"].endswith('.docx"')
     assert download.content.startswith(b"PK")
 
     document = Document(io.BytesIO(download.content))
@@ -546,9 +546,16 @@ def assert_table_grids_fit_a4_printable_width(docx_bytes: bytes) -> None:
         assert sum(widths) <= A4_PRINTABLE_WIDTH_TWIPS
 
 
+def get_asset_path(filename):
+    p = Path("backend/app/assets") / filename
+    if not p.exists():
+        p = Path("app/assets") / filename
+    return p
+
+
 def assert_docx_uses_bgwhite_logo(docx_bytes: bytes) -> None:
-    expected_logo = (Path("backend/app/assets/bgwhitelogo.png")).read_bytes()
-    app_logo = (Path("backend/app/assets/logo.png")).read_bytes()
+    expected_logo = get_asset_path("bgwhitelogo.png").read_bytes()
+    app_logo = get_asset_path("logo.png").read_bytes()
 
     with zipfile.ZipFile(io.BytesIO(docx_bytes)) as docx_zip:
         media_files = [
@@ -674,6 +681,10 @@ def test_upload_fixtures_download_excel_report(client, temp_store):
         series.graphicalProperties.line.solidFill.srgbClr
         for series in summary._charts[0].series
     ] == ["4472C4", "ED7D31", "A5A5A5", "FFC000"]
+    assert [
+        series.graphicalProperties.line.width
+        for series in summary._charts[0].series
+    ] == [38100, 38100, 38100, 38100]
     assert summary["S48"].value == "Notes"
     assert summary["S48"].font.bold is True
     assert summary["S48"].font.sz == 20
@@ -681,7 +692,7 @@ def test_upload_fixtures_download_excel_report(client, temp_store):
     assert summary["S48"].border.top.style == "medium"
     assert summary["S49"].fill.fgColor.rgb == "FFFFFF00"
     assert summary["S50"].fill.fgColor.rgb == "FFFF0000"
-    assert summary["S51"].fill.fgColor.rgb == "FFD9D9D9"
+    assert summary["S51"].fill.fill_type is None
     assert summary["S52"].value == "Data in the table is for illustration purposes ONLY"
     assert summary["S52"].border.top.style is None
 

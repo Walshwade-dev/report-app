@@ -36,7 +36,7 @@ COLUMN_RATIOS = {
 
 
 def get_column_widths(columns, total_width=A4_TABLE_WIDTH_TWIPS):
-    sample_widths = [1279, 1254, 1113, 835, 1669, 1116, 1255, 976, 696, 2229, 1206, 1492]
+    sample_widths = [1279, 1254, 1166, 835, 1498, 1116, 1255, 976, 696, 1858, 1206, 1492]
     if len(columns) == len(sample_widths):
         return {col: sample_widths[index] for index, col in enumerate(columns)}
 
@@ -117,11 +117,17 @@ def add_impounded_prohibited_section(doc: Document, df: pd.DataFrame):
     heading = doc.add_paragraph()
     heading.paragraph_format.space_before = Pt(8)
     heading.paragraph_format.space_after = Pt(0)
-    run = heading.add_run("6. IMPOUNDED & PROHIBITED")
-    run.bold = True
-    run.underline = True
-    run.font.name = "Arial"
-    run.font.size = Pt(11)
+    
+    run_num = heading.add_run("6. ")
+    run_num.bold = True
+    run_num.font.name = "Arial"
+    run_num.font.size = Pt(11)
+
+    run_text = heading.add_run("IMPOUNDED & PROHIBITED")
+    run_text.bold = True
+    run_text.underline = True
+    run_text.font.name = "Arial"
+    run_text.font.size = Pt(11)
 
     columns = list(df.columns)
     widths = get_column_widths(columns)

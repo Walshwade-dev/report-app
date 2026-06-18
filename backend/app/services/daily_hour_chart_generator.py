@@ -22,7 +22,13 @@ from app.services.report_layout import (
 
 TABLE_WIDTHS = [1110, 960, 660, 1060, 1050]
 COMPACT_TABLE_WIDTHS = TABLE_WIDTHS
-SECTION_TWO_CONTAINER_WIDTHS = [5200, 9000]
+# Container: left column holds the data table, right column holds the chart.
+# Total printable width = 15,000 twips (11" - 1" margins at 1440 twips/inch).
+# Left matching the exact compact table width (4840 twips), right takes the remaining (10160 twips).
+SECTION_TWO_CONTAINER_WIDTHS = [4840, 10160]
+# Chart dimensions that fit within the printable page height.
+CHART_WIDTH_INCHES = 6.61
+CHART_HEIGHT_INCHES = 6.57
 
 
 def set_row_height(row, height):
@@ -136,6 +142,20 @@ def remove_table_borders(table):
         border.set(qn("w:val"), "nil")
 
 
+def set_table_cell_margins(table, top=0, bottom=0, left=0, right=0):
+    tbl_pr = table._tbl.tblPr
+    tbl_cell_mar = tbl_pr.find(qn("w:tblCellMar"))
+    if tbl_cell_mar is not None:
+        tbl_pr.remove(tbl_cell_mar)
+    tbl_cell_mar = OxmlElement("w:tblCellMar")
+    for margin, val in [("top", top), ("bottom", bottom), ("left", left), ("right", right)]:
+        node = OxmlElement(f"w:{margin}")
+        node.set(qn("w:w"), str(val))
+        node.set(qn("w:type"), "dxa")
+        tbl_cell_mar.append(node)
+    tbl_pr.append(tbl_cell_mar)
+
+
 def set_table_indent(table, width):
     tbl_pr = table._tbl.tblPr
     tbl_ind = tbl_pr.find(qn("w:tblInd"))
@@ -196,17 +216,26 @@ def build_daily_hour_chart_data(daily_df: pd.DataFrame) -> pd.DataFrame:
     return chart_df
 
 
-def create_daily_hour_chart_image(chart_df):
+def create_daily_hour_chart_image(chart_df, width=6.61, height=6.57):
     buffer = io.BytesIO()
 
-    fig = plt.figure(figsize=(6.4, 4.18), dpi=150)
-    ax = fig.add_axes([0.08, 0.29, 0.89, 0.58])
+    fig = plt.figure(figsize=(width, height), dpi=150)
+    ax = fig.add_axes([0.08, 0.18, 0.89, 0.72])
     fig.patch.set_facecolor("white")
     fig.patch.set_edgecolor("#D9D9D9")
     fig.patch.set_linewidth(1.0)
 
-    ax.set_ylim(-12, 320)
-    ax.set_yticks(range(0, 301, 50))
+    max_val = max(
+        chart_df["N"].max() if not chart_df["N"].empty else 0,
+        chart_df["M"].max() if not chart_df["M"].empty else 0,
+        chart_df["Q"].max() if not chart_df["Q"].empty else 0,
+        chart_df["X"].max() if not chart_df["X"].empty else 0
+    )
+    max_val = max(max_val, 300)
+    ylim_top = ((int(max_val) + 49) // 50) * 50
+
+    ax.set_ylim(-ylim_top * 0.04, ylim_top * 1.06)
+    ax.set_yticks(range(0, ylim_top + 1, 50))
     ax.plot(chart_df["TIME"], chart_df["N"], label="N=(D+S)", color="#4472C4", linewidth=2.2)
     ax.plot(chart_df["TIME"], chart_df["M"], label="(M)", color="#ED7D31", linewidth=2.2)
     ax.plot(chart_df["TIME"], chart_df["Q"], label="Q= H-C", color="#A5A5A5", linewidth=2.6)
@@ -283,12 +312,16 @@ def add_vertical_spacer(doc, points):
     run.font.size = Pt(1)
 
 
-def add_daily_hour_chart_section(doc: Document, daily_df):
+def add_daily_hour_chart_section(doc: Document, daily_df, is_preview: bool = False):
     chart_df = build_daily_hour_chart_data(daily_df)
 
     heading = doc.add_paragraph()
     heading.paragraph_format.space_before = Pt(0)
-    heading.paragraph_format.space_after = Pt(0)
+    heading.paragraph_format.space_after = Pt(4)
+    # Start section 2 on its own page by setting page_break_before.
+    # This is cleaner than an external doc.add_page_break() call because
+    # it keeps the heading and the table that follows it atomic.
+    heading.paragraph_format.page_break_before = True
     run = heading.add_run("2. DAILY HOURLY DATA")
     run.bold = True
     run.font.name = "Arial"
@@ -302,6 +335,7 @@ def add_daily_hour_chart_section(doc: Document, daily_df):
     set_fixed_table_layout(container_table)
     set_table_grid(container_table, SECTION_TWO_CONTAINER_WIDTHS)
     remove_table_borders(container_table)
+    set_table_cell_margins(container_table, top=0, bottom=0, left=0, right=0)
 
     left_cell = container_table.rows[0].cells[0]
     right_cell = container_table.rows[0].cells[1]
@@ -320,18 +354,31 @@ def add_daily_hour_chart_section(doc: Document, daily_df):
     set_table_indent(small_table, 0)
     set_table_borders(small_table, size="6")
 
+    if is_preview:
+        header_height = 24.0
+        formula_height = 24.0
+        row_height = 14.0
+        chart_w = 6.61
+        chart_h = 5.0
+    else:
+        header_height = 31.68
+        formula_height = 31.68
+        row_height = 16.56
+        chart_w = CHART_WIDTH_INCHES
+        chart_h = CHART_HEIGHT_INCHES
+
     header_row = small_table.rows[0]
     formula_row = small_table.rows[1]
 
-    set_row_height_points(header_row, 29.5)
-    set_row_height_points(formula_row, 18.0)
+    set_row_height_points(header_row, header_height)
+    set_row_height_points(formula_row, formula_height)
 
     time_cell = header_row.cells[0].merge(formula_row.cells[0])
 
     headers = [
         "Time",
         "Multideck\nweighed",
-        "Manually ",
+        "Manually",
         "HSWIM\nCLEARED",
         "Total\nweighed",
     ]
@@ -357,7 +404,7 @@ def add_daily_hour_chart_section(doc: Document, daily_df):
 
     for row_index, (_, row) in enumerate(chart_df.iterrows(), start=2):
         row_obj = small_table.rows[row_index]
-        set_row_height_points(row_obj, 13.8)
+        set_row_height_points(row_obj, row_height)
 
         values = [row["TIME"], row["N"], row["M"], row["Q"], row["X"]]
 
@@ -374,7 +421,7 @@ def add_daily_hour_chart_section(doc: Document, daily_df):
             set_cell_borders(cell, size="6")
 
     totals = small_table.rows[-1]
-    set_row_height_points(totals, 13.8)
+    set_row_height_points(totals, row_height)
 
     total_values = [
         "Total",
@@ -396,11 +443,18 @@ def add_daily_hour_chart_section(doc: Document, daily_df):
         )
         set_cell_borders(cell, size="6")
 
-    chart_image = create_daily_hour_chart_image(chart_df)
+    chart_image = create_daily_hour_chart_image(chart_df, width=chart_w, height=chart_h)
 
     paragraph = right_cell.paragraphs[0]
     paragraph.paragraph_format.space_before = Pt(0)
     paragraph.paragraph_format.space_after = Pt(0)
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = paragraph.add_run()
-    run.add_picture(chart_image, width=Inches(5.75), height=Inches(5.2))
+    run.add_picture(chart_image, width=Inches(chart_w), height=Inches(chart_h))
+
+    for cell in [left_cell, right_cell]:
+        for p in list(cell.paragraphs):
+            if not p.text and len(p.runs) == 0:
+                p.paragraph_format.space_before = Pt(0)
+                p.paragraph_format.space_after = Pt(0)
+                p.paragraph_format.line_spacing = Pt(1)

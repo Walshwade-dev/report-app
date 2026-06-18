@@ -148,7 +148,7 @@ def _station_bound_title(session) -> str:
 
 
 def _font(size: float = 11, bold: bool = False) -> Font:
-    return Font(name=FONT_NAME, size=size, bold=bold)
+    return Font(name=FONT_NAME, size=size, bold=bold, color="000000")
 
 
 def _alignment(
@@ -412,7 +412,6 @@ def _write_daily_hour_rows(ws: Worksheet, daily_df: pd.DataFrame, session) -> No
             f"I{excel_row}": f"=D{excel_row}+E{excel_row}+F{excel_row}",
             f"K{excel_row}": f"=M{excel_row}+N{excel_row}+O{excel_row}+P{excel_row}",
             f"L{excel_row}": f"=N{excel_row}+P{excel_row}",
-            f"S{excel_row}": f"=D{excel_row}+F{excel_row}",
             f"T{excel_row}": f"=C{excel_row}",
             f"U{excel_row}": f"=D{excel_row}+E{excel_row}",
             f"V{excel_row}": f"=F{excel_row}",
@@ -425,8 +424,8 @@ def _write_daily_hour_rows(ws: Worksheet, daily_df: pd.DataFrame, session) -> No
                 coordinate,
                 formula,
                 size=10 if coordinate.startswith("T") else 11,
-                fill=RED_FILL if not coordinate.startswith("S") else NO_FILL,
-                border=THIN_BORDER if not coordinate.startswith("S") else None,
+                fill=RED_FILL,
+                border=THIN_BORDER,
                 number_format="General",
             )
 
@@ -569,7 +568,7 @@ def _write_daily_summary(ws: Worksheet, session) -> None:
         "D38": "Manually Weighed (M)",
         "E38": "Total weighed (X)",
         "F38:G38": "Total Traffic (T)",
-        "H38": "Total   Overload       (Y)            A+Z+G+R",
+        "H38": "Total   Overload       (Y)",
         "I38": " Warned   (A)",
         "J38": "Charged in court (Z)",
         "K38": "Special release (G)",
@@ -591,7 +590,7 @@ def _write_daily_summary(ws: Worksheet, session) -> None:
         "D39": "(M)",
         "E39": "(X)=(S+M)",
         "F39:G39": "(T)=(Q+X+K+E)",
-        "H39": "(Y)",
+        "H39": "(Y) = (A+Z+G+R)",
         "I39": "(A)",
         "J39": "(Z)",
         "K39": "(G)",
@@ -692,8 +691,23 @@ def _add_daily_hour_chart(ws: Worksheet) -> None:
     chart.y_axis.numFmt = "General"
     chart.x_axis.txPr = _chart_axis_text_properties()
     chart.y_axis.txPr = _chart_axis_text_properties()
+
+    # Calculate dynamic max value from the worksheet data rows 6-29
+    max_val = 300
+    for r in range(6, 30):
+        try:
+            d_val = float(ws.cell(row=r, column=4).value or 0)  # Col D
+            e_val = float(ws.cell(row=r, column=5).value or 0)  # Col E
+            f_val = float(ws.cell(row=r, column=6).value or 0)  # Col F
+            h_val = float(ws.cell(row=r, column=7).value or 0)  # Col G
+            x_val = d_val + e_val + f_val
+            max_val = max(max_val, x_val, h_val)
+        except Exception:
+            pass
+    ylim_max = ((int(max_val) + 49) // 50) * 50
+
     chart.y_axis.scaling.min = 0
-    chart.y_axis.scaling.max = 300
+    chart.y_axis.scaling.max = ylim_max
     chart.y_axis.majorUnit = 50
     chart.x_axis.crosses = "min"
     chart.y_axis.crosses = "autoZero"
@@ -717,13 +731,14 @@ def _add_daily_hour_chart(ws: Worksheet) -> None:
     for series, color in zip(chart.series, colors, strict=False):
         series.smooth = False
         series.graphicalProperties.line.solidFill = color
-        series.graphicalProperties.line.width = 28575
+        series.graphicalProperties.line.width = 38100  # Bolder line width (3.0pt instead of 2.25pt/28575)
 
-    chart.anchor = TwoCellAnchor(
-        _from=AnchorMarker(col=18, colOff=178594, row=30, rowOff=122283),
-        to=AnchorMarker(col=24, colOff=107156, row=41, rowOff=88246),
-    )
-    ws.add_chart(chart)
+    chart.x = 19.49
+    chart.y = 12.57
+    chart.width = 16.79
+    chart.height = 13.335
+    chart.anchor = "T32"
+    ws.add_chart(chart, "T32")
 
 
 def _write_reference_markers(ws: Worksheet) -> None:
@@ -772,7 +787,7 @@ def _write_reference_markers(ws: Worksheet) -> None:
         f"S{start_row + 3}:X{start_row + 3}",
         "No fill = manual entries fill in from data collection forms/books",
         size=12,
-        fill=LIGHT_GRAY_FILL,
+        fill=NO_FILL,
         border=MEDIUM_BORDER,
         horizontal="left",
         vertical="center",
@@ -863,7 +878,7 @@ def _write_cc_records(ws: Worksheet, session) -> None:
                     number_format="General",
                 )
 
-    _merge_and_set(ws, "B12:D12", "RELEASED TRUCKS", size=14, fill=YELLOW_FILL, border=Border(left=MEDIUM_SIDE, right=MEDIUM_SIDE, top=MEDIUM_SIDE, bottom=NO_SIDE))
+    _merge_and_set(ws, "B12:D12", "RELEASED TRUCKS", size=14, fill=YELLOW_FILL, border=Border(left=MEDIUM_SIDE, right=MEDIUM_SIDE, top=MEDIUM_SIDE, bottom=MEDIUM_SIDE))
     released_border = Border(left=THIN_SIDE, right=THIN_SIDE, top=NO_SIDE, bottom=THIN_SIDE)
     _set_cell(ws, "B13", 0, border=released_border, vertical=None, wrap_text=None)
     _set_cell(ws, "C13", 0, border=released_border, vertical=None, wrap_text=None)
