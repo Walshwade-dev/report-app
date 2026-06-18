@@ -756,7 +756,12 @@ async def download_report_session_mobile_excel_report(report_id: str):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    filename = get_report_filename(session, "xlsx")
+    filename = (
+        f"{session.station}_{session.bound}_{session.report_date}_mobile_report"
+        .upper()
+        .replace("_", " ")
+        + ".xlsx"
+    )
 
     return Response(
         content=file_stream.getvalue(),
@@ -777,7 +782,12 @@ async def download_report_session_mobile_word_report(report_id: str):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    filename = get_report_filename(session, "docx")
+    filename = (
+        f"{session.station}_{session.bound}_{session.report_date}_mobile_report"
+        .upper()
+        .replace("_", " ")
+        + ".docx"
+    )
 
     return Response(
         content=file_stream.getvalue(),

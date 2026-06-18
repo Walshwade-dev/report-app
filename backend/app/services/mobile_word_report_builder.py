@@ -30,8 +30,8 @@ VEHICLE_TABLE_WIDTHS = [
     1260,
     1440,
     720,
-    810,
-    720,
+    1530,
+    1530,
     1260,
     1350,
     1260,
@@ -194,8 +194,8 @@ def _set_table_borders(table, size: str = "8") -> None:
         border.set(qn("w:color"), "000000")
 
 
-def _set_row_height(row, points: float) -> None:
-    row.height = Pt(points)
+def _set_row_height(row, inches: float) -> None:
+    row.height = Inches(inches)
     row.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
 
 
@@ -348,6 +348,12 @@ def _add_daily_hour_statistics(doc: Document, records: pd.DataFrame, report_date
     _set_table_width(table, sum(widths))
     _set_table_borders(table)
 
+    _set_row_height(table.rows[0], 0.35)
+    _set_row_height(table.rows[1], 0.29)
+    _set_row_height(table.rows[2], 0.34)
+    for row in table.rows[3:]:
+        _set_row_height(row, 0.27)
+
     headers_1 = [
         "Date",
         "Time",
@@ -411,6 +417,11 @@ def _add_daily_hourly_data(doc: Document, records: pd.DataFrame) -> None:
     _set_table_width(table, sum(widths))
     _set_table_borders(table)
 
+    _set_row_height(table.rows[0], 0.21)
+    _set_row_height(table.rows[1], 0.28)
+    for row in table.rows[2:]:
+        _set_row_height(row, 0.21)
+
     for col, text in enumerate(["", "WEIGHED", "CHARGED & PROHIBITED"]):
         _set_cell_text(table.cell(0, col), text, size=8, bold=True)
         _set_cell_width(table.cell(0, col), widths[col])
@@ -442,6 +453,9 @@ def _add_daily_summary(doc: Document, records: pd.DataFrame, session) -> None:
     _set_table_grid(table, widths)
     _set_table_width(table, sum(widths))
     _set_table_borders(table)
+
+    _set_row_height(table.rows[0], 0.55)
+    _set_row_height(table.rows[1], 0.30)
 
     headers = [
         "Total Weighed (X)",
@@ -478,6 +492,14 @@ def _add_nil_table(doc: Document, heading: str, headers: list[str], widths: list
     _set_table_grid(table, widths)
     _set_table_width(table, sum(widths))
     _set_table_borders(table)
+
+    if heading.upper() == "TRANSGRESSION":
+        _set_row_height(table.rows[0], 0.16)
+        _set_row_height(table.rows[1], 0.26)
+    else:
+        _set_row_height(table.rows[0], 0.09)
+        _set_row_height(table.rows[1], 0.27)
+
     for col, header in enumerate(headers):
         _set_cell_text(table.cell(0, col), header, size=7, bold=True)
         _set_cell_width(table.cell(0, col), widths[col])
@@ -488,6 +510,14 @@ def _add_nil_table(doc: Document, heading: str, headers: list[str], widths: list
 def _vehicle_row_values(record, session, report_date) -> list[str]:
     gvw_excess = record["gvw_difference_kg"] if record["gvw_difference_kg"] > 0 else 0
     axle_excess = record["excess_kg"] if record["excess_kg"] > 0 else 0
+    danka_staff = _manual_value(session, "danka_staff", "computer_operator")
+    police_officers = _manual_value(session, "police_officers", "police")
+
+    danka_shifts = [s.strip() for s in str(danka_staff).split(" / ")] if danka_staff else []
+    police_shifts = [s.strip() for s in str(police_officers).split(" / ")] if police_officers else []
+    danka_1 = danka_shifts[0] if len(danka_shifts) > 0 else ""
+    police_1 = police_shifts[0] if len(police_shifts) > 0 else ""
+
     return [
         _display_date(report_date),
         _upper(record["registration"]),
@@ -498,8 +528,8 @@ def _vehicle_row_values(record, session, report_date) -> list[str]:
         _upper(record["origin"]),
         _upper(record["destination"]),
         _upper(record["cargo"]),
-        _upper(_manual_value(session, "danka_staff", "computer_operator")),
-        _upper(_manual_value(session, "police_officers", "police")),
+        _upper(danka_1),
+        _upper(police_1),
         _upper(record["remarks"]),
     ]
 
@@ -531,7 +561,7 @@ def _add_vehicle_table(
         "ORIGIN",
         "DESTIN.",
         "CARGO",
-        "COMPUTER OPERATOR\n(DANKA STAFF)",
+        "COMPUTER OPERATOR (DANKA STAFF)",
         "OFFICER",
         "REMARKS",
     ]
@@ -541,16 +571,19 @@ def _add_vehicle_table(
         _set_cell_width(table.cell(0, col), VEHICLE_TABLE_WIDTHS[col])
         _set_cell_text(table.cell(1, col), subheaders[col], size=8, bold=True)
         _set_cell_width(table.cell(1, col), VEHICLE_TABLE_WIDTHS[col])
-    for row in table.rows[:2]:
-        _set_row_height(row, 18)
+    
+    _set_row_height(table.rows[0], 0.55)
+    _set_row_height(table.rows[1], 0.18)
 
     if records.empty:
         for col in range(12):
             _set_cell_text(table.cell(2, col), "NIL" if col == 0 else "", size=7)
             _set_cell_width(table.cell(2, col), VEHICLE_TABLE_WIDTHS[col])
+        _set_row_height(table.rows[2], 0.31)
         return
 
     for row_index, (_, record) in enumerate(records.iterrows(), start=2):
+        _set_row_height(table.rows[row_index], 0.31)
         for col, value in enumerate(_vehicle_row_values(record, session, report_date)):
             align = (
                 WD_ALIGN_PARAGRAPH.LEFT
@@ -569,6 +602,11 @@ def _add_mileage_table(doc: Document, session) -> None:
     _set_table_grid(table, widths)
     _set_table_width(table, sum(widths))
     _set_table_borders(table)
+
+    _set_row_height(table.rows[0], 0.44)
+    _set_row_height(table.rows[1], 0.25)
+    _set_row_height(table.rows[2], 0.22)
+    _set_row_height(table.rows[3], 0.22)
 
     start = _manual_value(session, "mileage_start")
     end = _manual_value(session, "mileage_end")
@@ -600,11 +638,29 @@ def _add_mileage_table(doc: Document, session) -> None:
 
 def _add_location_notes(doc: Document, session) -> None:
     route = _upper(_manual_value(session, "route"))
-    danka_staff = _upper(_manual_value(session, "danka_staff", "computer_operator"))
-    police = _upper(_manual_value(session, "police_officers", "police"))
+    danka_staff = _manual_value(session, "danka_staff", "computer_operator")
+    police = _manual_value(session, "police_officers", "police")
+
+    danka_shifts = [s.strip() for s in str(danka_staff).split(" / ")] if danka_staff else []
+    police_shifts = [s.strip() for s in str(police).split(" / ")] if police else []
+
     _add_bold_line(doc, f"ACTUAL ROUTE: \t{route}.")
-    _add_bold_line(doc, f"DANKA PERSONNEL:    {danka_staff}.")
-    _add_bold_line(doc, f"POLICE OFFICERS:        {police}.")
+
+    if danka_shifts:
+        danka_line_1 = f"DANKA PERSONNEL:    {_upper(danka_shifts[0])}."
+        _add_bold_line(doc, danka_line_1)
+        for shift in danka_shifts[1:]:
+            _add_bold_line(doc, f"{' ' * 20}{_upper(shift)}.")
+    else:
+        _add_bold_line(doc, "DANKA PERSONNEL:    .")
+
+    if police_shifts:
+        police_line_1 = f"POLICE OFFICERS:        {_upper(police_shifts[0])}."
+        _add_bold_line(doc, police_line_1)
+        for shift in police_shifts[1:]:
+            _add_bold_line(doc, f"{' ' * 24}{_upper(shift)}.")
+    else:
+        _add_bold_line(doc, "POLICE OFFICERS:        .")
 
 
 def build_mobile_word_report(session) -> io.BytesIO:

@@ -66,6 +66,8 @@ SUMMARY_COLUMN_WIDTHS = {
     "T": 13.14,
     "U": 13.14,
     "V": 13.14,
+    "W": 13.0,
+    "X": 13.0,
 }
 
 DETAIL_COLUMN_WIDTHS = {
@@ -357,7 +359,7 @@ def _setup_summary_sheet(ws: Worksheet) -> None:
     _set_cell(ws, "J4", "Date", bold=True, border=MEDIUM_BORDER)
     _set_cell(ws, "K4", "WEIGHED", bold=True, border=MEDIUM_BORDER)
     _set_cell(ws, "L4", "CHARGED", bold=True, border=MEDIUM_BORDER)
-    _merge_and_set(ws, "N3:V30", None, border=MEDIUM_BORDER, wrap_text=False)
+    _merge_and_set(ws, "N3:X30", None, border=MEDIUM_BORDER, wrap_text=False)
 
     summary_headers = {
         "D32": "Total Weighed (X)",
@@ -372,25 +374,34 @@ def _setup_summary_sheet(ws: Worksheet) -> None:
     for coordinate, label in summary_headers.items():
         _set_cell(ws, coordinate, label, bold=True, border=MEDIUM_BORDER)
 
-    _merge_and_set(ws, "O32:T32", "Notes", size=28, bold=True, border=MEDIUM_BORDER, wrap_text=False)
-    _merge_and_set_note_row(
+    _merge_and_set(ws, "O32:V32", "Notes", size=28, bold=True, border=MEDIUM_BORDER, wrap_text=False)
+    _set_cell(
         ws,
-        "O33:T33",
-        "Red",
-        "formulae, do not edit",
+        "O33",
+        "Red = formulae, do not edit",
+        size=11,
+        bold=False,
         fill=RED_FILL,
+        border=THIN_BORDER,
+        horizontal="left",
     )
-    _merge_and_set_note_row(
+    _merge_and_set(
         ws,
-        "O34:T34",
-        "No fill",
-        "manual entries fill in from data collection forms",
+        "O34:V34",
+        "No fill = manual entries fill in from data collection forms",
+        size=11,
+        bold=False,
+        border=THIN_BORDER,
+        horizontal="left",
     )
-    _merge_and_set_note_row(
+    _merge_and_set(
         ws,
-        "O35:T35",
-        "Data",
-        "in the table is for illustration purposes ONLY",
+        "O35:V35",
+        "Data in the table is for illustration purposes ONLY",
+        size=14,
+        bold=True,
+        border=MEDIUM_BORDER,
+        horizontal="left",
     )
 
 
@@ -470,6 +481,7 @@ def _write_summary_rows(
     records: pd.DataFrame,
     report_date: datetime | str,
     summary: dict[str, Any],
+    session=None,
 ) -> None:
     for offset, hour in enumerate(HOURS):
         row = 5 + offset
@@ -509,10 +521,10 @@ def _write_summary_rows(
     _set_cell(ws, "E33", "=F29+G29", fill=RED_FILL, border=MEDIUM_BORDER)
     _set_cell(ws, "F33", "=G29", fill=RED_FILL, border=MEDIUM_BORDER)
     _set_cell(ws, "G33", "=F29", fill=RED_FILL, border=MEDIUM_BORDER)
-    _set_cell(ws, "H33", int(summary.get("cases_cleared_in_court", 0)), border=MEDIUM_BORDER)
-    _set_cell(ws, "I33", int(summary.get("transgressions_count", 0)), border=MEDIUM_BORDER)
-    _set_cell(ws, "J33", int(summary.get("exempted_permit", 0)), border=MEDIUM_BORDER)
-    _set_cell(ws, "K33", int(summary.get("manually_weighed", 0)), border=MEDIUM_BORDER)
+    _set_cell(ws, "H33", _manual_int(session, "cases_cleared_in_court", default=0), border=MEDIUM_BORDER)
+    _set_cell(ws, "I33", _manual_int(session, "transgressions_count", "transgressions", default=0), border=MEDIUM_BORDER)
+    _set_cell(ws, "J33", _manual_int(session, "exempted_permit", default=0), border=MEDIUM_BORDER)
+    _set_cell(ws, "K33", _manual_int(session, "manually_weighed", default=0), border=MEDIUM_BORDER)
     _merge_and_set(ws, "D34:K34", "weighed summary", bold=True, border=MEDIUM_BORDER)
 
 
@@ -523,7 +535,7 @@ def _add_hourly_summary_chart(ws: Worksheet) -> None:
     chart.roundedCorners = False
     chart.varyColors = False
     chart.height = 7.5
-    chart.width = 11.25
+    chart.width = 15
     chart.legend.position = "b"
     chart.dataLabels = DataLabelList()
     chart.dataLabels.showLegendKey = False
@@ -569,7 +581,7 @@ def _add_hourly_summary_chart(ws: Worksheet) -> None:
 
     chart.anchor = TwoCellAnchor(
         _from=AnchorMarker(col=13, colOff=728385, row=3, rowOff=51548),
-        to=AnchorMarker(col=21, colOff=67238, row=27, rowOff=156883),
+        to=AnchorMarker(col=23, colOff=67238, row=27, rowOff=156883),
     )
     ws.add_chart(chart)
 
@@ -591,9 +603,18 @@ def _write_manual_header(
     mileage_start = _manual_value(session, "mileage_start")
     mileage_end = _manual_value(session, "mileage_end")
 
+    danka_shifts = [s.strip() for s in str(danka_staff).split(" / ")] if danka_staff else []
+    police_shifts = [s.strip() for s in str(police_officers).split(" / ")] if police_officers else []
+    danka_1 = danka_shifts[0] if len(danka_shifts) > 0 else ""
+    danka_2 = danka_shifts[1] if len(danka_shifts) > 1 else ""
+    police_1 = police_shifts[0] if len(police_shifts) > 0 else ""
+    police_2 = police_shifts[1] if len(police_shifts) > 1 else ""
+
     _set_detail_center_cell(ws, "B6", report_date, number_format=DATE_FORMAT)
-    _set_detail_text_cell(ws, "E6", _upper(danka_staff))
-    _set_detail_text_cell(ws, "G6", _upper(police_officers), vertical=None)
+    _set_detail_text_cell(ws, "E6", _upper(danka_1))
+    _set_detail_text_cell(ws, "E7", _upper(danka_2) if danka_2 else "")
+    _set_detail_text_cell(ws, "G6", _upper(police_1), vertical=None)
+    _set_detail_text_cell(ws, "G7", _upper(police_2) if police_2 else "", vertical=None)
     _set_detail_center_cell(ws, "I6", int(summary["total_trucks_weighed"]), border=MEDIUM_BORDER, size=10)
     _set_detail_center_cell(ws, "J6", int(summary["charged_gvw_axle_trucks"]), border=MEDIUM_BORDER, size=10)
     _set_detail_center_cell(ws, "J7", int(summary["charged_dimensions_trucks"]))
@@ -622,16 +643,19 @@ def _write_detail_rows(
     report_date: datetime | str,
 ) -> None:
     route = _upper(_manual_value(session, "route"))
-    danka_staff = _upper(
-        _manual_value(
-            session,
-            "danka_staff",
-            "danka_officers",
-            "computer_operator",
-            "computer_operators",
-        )
+    danka_staff = _manual_value(
+        session,
+        "danka_staff",
+        "danka_officers",
+        "computer_operator",
+        "computer_operators",
     )
-    police_officers = _upper(_manual_value(session, "police_officers", "police"))
+    police_officers = _manual_value(session, "police_officers", "police")
+
+    danka_shifts = [s.strip() for s in str(danka_staff).split(" / ")] if danka_staff else []
+    police_shifts = [s.strip() for s in str(police_officers).split(" / ")] if police_officers else []
+    danka_1 = danka_shifts[0] if len(danka_shifts) > 0 else ""
+    police_1 = police_shifts[0] if len(police_shifts) > 0 else ""
 
     for offset, (_, record) in enumerate(records.iterrows()):
         row = 11 + offset
@@ -648,8 +672,8 @@ def _write_detail_rows(
             f"H{row}": _upper(record["origin"]),
             f"I{row}": _upper(record["destination"]),
             f"J{row}": _upper(record["cargo"]),
-            f"K{row}": danka_staff,
-            f"L{row}": police_officers,
+            f"K{row}": _upper(danka_1),
+            f"L{row}": _upper(police_1),
             f"M{row}": _upper(record["remarks"]),
             f"N{row}": route,
         }
@@ -713,7 +737,7 @@ def build_mobile_excel_report(session) -> io.BytesIO:
 
     summary_ws = wb.active
     _setup_summary_sheet(summary_ws)
-    _write_summary_rows(summary_ws, records, report_date, summary)
+    _write_summary_rows(summary_ws, records, report_date, summary, session)
     _add_hourly_summary_chart(summary_ws)
 
     detail_ws = wb.create_sheet("Mobile Daily Report")
