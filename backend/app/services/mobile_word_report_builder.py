@@ -450,17 +450,17 @@ def _add_daily_hourly_data(doc: Document, records: pd.DataFrame, session) -> Non
     layout_table = doc.add_table(rows=1, cols=2)
     layout_table.autofit = False
     _set_fixed_table_layout(layout_table)
-    _set_table_grid(layout_table, [3780, 11340])
+    _set_table_grid(layout_table, [5501, 9619])
     _set_table_width(layout_table, 15120)
     
     left_cell = layout_table.cell(0, 0)
-    _set_cell_width(left_cell, 3780)
+    _set_cell_width(left_cell, 5501)
     right_cell = layout_table.cell(0, 1)
-    _set_cell_width(right_cell, 11340)
+    _set_cell_width(right_cell, 9619)
     
     # Left Cell: Table
     table = left_cell.add_table(rows=26, cols=3)
-    widths = [1110, 1227, 1443]
+    widths = [1615, 1786, 2100]
     _set_fixed_table_layout(table)
     _set_table_grid(table, widths)
     _set_table_width(table, sum(widths))
@@ -472,7 +472,7 @@ def _add_daily_hourly_data(doc: Document, records: pd.DataFrame, session) -> Non
         _set_row_height(row, 0.2083)
 
     for col, text in enumerate(["", "WEIGHED", "CHARGED & PROHIBITED"]):
-        _set_cell_text(table.cell(0, col), text, size=11, bold=True)
+        _set_cell_text(table.cell(0, col), text, size=11, bold=True, align=WD_ALIGN_PARAGRAPH.LEFT)
         _set_cell_width(table.cell(0, col), widths[col])
 
     totals = {"weighed": 0, "charged": 0}
@@ -481,11 +481,11 @@ def _add_daily_hourly_data(doc: Document, records: pd.DataFrame, session) -> Non
         totals["weighed"] += values["weighed"]
         totals["charged"] += values["charged"]
         for col, value in enumerate([hour, values["weighed"], values["charged"]]):
-            _set_cell_text(table.cell(index, col), value, size=11)
+            _set_cell_text(table.cell(index, col), value, size=11, align=WD_ALIGN_PARAGRAPH.LEFT)
             _set_cell_width(table.cell(index, col), widths[col])
 
     for col, value in enumerate(["Total", totals["weighed"], totals["charged"]]):
-        _set_cell_text(table.cell(25, col), value, size=11, bold=True)
+        _set_cell_text(table.cell(25, col), value, size=11, bold=True, align=WD_ALIGN_PARAGRAPH.LEFT)
         _set_cell_width(table.cell(25, col), widths[col])
 
     # Right Cell: Chart
@@ -619,15 +619,15 @@ def _add_vehicle_table(
     ]
     subheaders = ["", "", "", "", "GVW", "AXLE", "", "", "", "", "", ""]
     for col, header in enumerate(headers):
-        _set_cell_text(table.cell(0, col), header, size=11, bold=True)
+        _set_cell_text(table.cell(0, col), header, size=8, bold=True)
         _set_cell_width(table.cell(0, col), VEHICLE_TABLE_WIDTHS[col])
-        _set_cell_text(table.cell(1, col), subheaders[col], size=11, bold=True)
+        _set_cell_text(table.cell(1, col), subheaders[col], size=8, bold=True)
         _set_cell_width(table.cell(1, col), VEHICLE_TABLE_WIDTHS[col])
 
     cell_0_4 = table.cell(0, 4)
     cell_0_5 = table.cell(0, 5)
     cell_0_4.merge(cell_0_5)
-    _set_cell_text(cell_0_4, "EXCESS WEIGHT", size=11, bold=True)
+    _set_cell_text(cell_0_4, "EXCESS WEIGHT", size=8, bold=True)
 
     # Table 6 (full vehicle list) vs Table 7 (charged >2T) have different header row heights
     if "CHARGED" in heading.upper():
@@ -653,7 +653,7 @@ def _add_vehicle_table(
 def _add_mileage_table(doc: Document, session) -> None:
     _add_heading(doc, "LOCATION REPORT")
     table = doc.add_table(rows=4, cols=4)
-    widths = [4502, 4230, 2790, 3785]
+    widths = [4235, 3980, 2625, 3560]
     _set_fixed_table_layout(table)
     _set_table_grid(table, widths)
     _set_table_width(table, sum(widths))
@@ -735,7 +735,7 @@ def _add_mobile_footer(section, report_date, session) -> None:
     month_year = date_obj.strftime("%B, %Y").upper()
     date_str = f"{day}{suffix} {month_year}"
 
-    prefix = f"KeNHA/WB/MTCE/43339/2025 {station} MOBILE REPORT 1 DATE ({date_str})   Page "
+    prefix = f"KeNHA/WB/MTCE/43339/2025\t\t{station} MOBILE REPORT 1  {date_str}   \t\tPage "
     run_prefix = paragraph.add_run(prefix)
     style_footer_run(run_prefix)
 
@@ -848,7 +848,6 @@ def build_mobile_word_report(session) -> io.BytesIO:
     _add_landscape_section(doc)
     _add_vehicle_table(doc, "6.0 DETAILS OF VEHICLES", records, session, report_date)
 
-    _add_landscape_section(doc)
     charged_over_two = records.loc[
         (records["gvw_difference_kg"] > 2000)
         & (records["is_gvw_axle_charge"] | records["is_dimension_charge"])
@@ -861,10 +860,8 @@ def build_mobile_word_report(session) -> io.BytesIO:
         report_date,
     )
 
-    _add_landscape_section(doc)
     _add_mileage_table(doc, session)
 
-    _add_landscape_section(doc)
     _add_location_notes(doc, session)
 
     buffer = io.BytesIO()
