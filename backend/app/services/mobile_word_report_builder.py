@@ -98,7 +98,7 @@ def _format_plain_number(value: Any) -> str:
     number = pd.to_numeric(value, errors="coerce")
     if pd.isna(number):
         return ""
-    return f"{int(number):,}"
+    return f"{int(number)}"
 
 
 def _plain_int(value: Any) -> int | None:
@@ -348,11 +348,11 @@ def _add_daily_hour_statistics(doc: Document, records: pd.DataFrame, report_date
     _set_table_width(table, sum(widths))
     _set_table_borders(table)
 
-    _set_row_height(table.rows[0], 0.35)
-    _set_row_height(table.rows[1], 0.29)
-    _set_row_height(table.rows[2], 0.34)
+    _set_row_height(table.rows[0], 0.3458)
+    _set_row_height(table.rows[1], 0.2868)
+    _set_row_height(table.rows[2], 0.3368)
     for row in table.rows[3:]:
-        _set_row_height(row, 0.27)
+        _set_row_height(row, 0.2736)
 
     headers_1 = [
         "Date",
@@ -417,10 +417,10 @@ def _add_daily_hourly_data(doc: Document, records: pd.DataFrame) -> None:
     _set_table_width(table, sum(widths))
     _set_table_borders(table)
 
-    _set_row_height(table.rows[0], 0.21)
-    _set_row_height(table.rows[1], 0.28)
+    _set_row_height(table.rows[0], 0.2083)
+    _set_row_height(table.rows[1], 0.2764)
     for row in table.rows[2:]:
-        _set_row_height(row, 0.21)
+        _set_row_height(row, 0.2083)
 
     for col, text in enumerate(["", "WEIGHED", "CHARGED & PROHIBITED"]):
         _set_cell_text(table.cell(0, col), text, size=8, bold=True)
@@ -454,8 +454,8 @@ def _add_daily_summary(doc: Document, records: pd.DataFrame, session) -> None:
     _set_table_width(table, sum(widths))
     _set_table_borders(table)
 
-    _set_row_height(table.rows[0], 0.55)
-    _set_row_height(table.rows[1], 0.30)
+    _set_row_height(table.rows[0], 0.5465)
+    _set_row_height(table.rows[1], 0.3035)
 
     headers = [
         "Total Weighed (X)",
@@ -494,11 +494,15 @@ def _add_nil_table(doc: Document, heading: str, headers: list[str], widths: list
     _set_table_borders(table)
 
     if heading.upper() == "TRANSGRESSION":
-        _set_row_height(table.rows[0], 0.16)
-        _set_row_height(table.rows[1], 0.26)
+        _set_row_height(table.rows[0], 0.1639)
+        _set_row_height(table.rows[1], 0.2569)
+    elif "REPORT" in heading.upper():
+        _set_row_height(table.rows[0], 0.0868)
+        _set_row_height(table.rows[1], 0.2660)
     else:
-        _set_row_height(table.rows[0], 0.09)
-        _set_row_height(table.rows[1], 0.27)
+        # Number plates removed
+        _set_row_height(table.rows[0], 0.0840)
+        _set_row_height(table.rows[1], 0.2576)
 
     for col, header in enumerate(headers):
         _set_cell_text(table.cell(0, col), header, size=7, bold=True)
@@ -515,8 +519,6 @@ def _vehicle_row_values(record, session, report_date) -> list[str]:
 
     danka_shifts = [s.strip() for s in str(danka_staff).split(" / ")] if danka_staff else []
     police_shifts = [s.strip() for s in str(police_officers).split(" / ")] if police_officers else []
-    danka_1 = danka_shifts[0] if len(danka_shifts) > 0 else ""
-    police_1 = police_shifts[0] if len(police_shifts) > 0 else ""
 
     return [
         _display_date(report_date),
@@ -528,8 +530,8 @@ def _vehicle_row_values(record, session, report_date) -> list[str]:
         _upper(record["origin"]),
         _upper(record["destination"]),
         _upper(record["cargo"]),
-        _upper(danka_1),
-        _upper(police_1),
+        _upper(danka_staff),
+        _upper(police_officers),
         _upper(record["remarks"]),
     ]
 
@@ -571,19 +573,24 @@ def _add_vehicle_table(
         _set_cell_width(table.cell(0, col), VEHICLE_TABLE_WIDTHS[col])
         _set_cell_text(table.cell(1, col), subheaders[col], size=8, bold=True)
         _set_cell_width(table.cell(1, col), VEHICLE_TABLE_WIDTHS[col])
-    
-    _set_row_height(table.rows[0], 0.55)
-    _set_row_height(table.rows[1], 0.18)
+
+    # Table 6 (full vehicle list) vs Table 7 (charged >2T) have different header row heights
+    if "CHARGED" in heading.upper():
+        _set_row_height(table.rows[0], 0.7729)
+        _set_row_height(table.rows[1], 0.2264)
+    else:
+        _set_row_height(table.rows[0], 0.5507)
+        _set_row_height(table.rows[1], 0.1826)
 
     if records.empty:
         for col in range(12):
             _set_cell_text(table.cell(2, col), "NIL" if col == 0 else "", size=7)
             _set_cell_width(table.cell(2, col), VEHICLE_TABLE_WIDTHS[col])
-        _set_row_height(table.rows[2], 0.31)
+        _set_row_height(table.rows[2], 0.3056)
         return
 
     for row_index, (_, record) in enumerate(records.iterrows(), start=2):
-        _set_row_height(table.rows[row_index], 0.31)
+        _set_row_height(table.rows[row_index], 0.3056)
         for col, value in enumerate(_vehicle_row_values(record, session, report_date)):
             align = (
                 WD_ALIGN_PARAGRAPH.LEFT
@@ -603,10 +610,10 @@ def _add_mileage_table(doc: Document, session) -> None:
     _set_table_width(table, sum(widths))
     _set_table_borders(table)
 
-    _set_row_height(table.rows[0], 0.44)
-    _set_row_height(table.rows[1], 0.25)
-    _set_row_height(table.rows[2], 0.22)
-    _set_row_height(table.rows[3], 0.22)
+    _set_row_height(table.rows[0], 0.4375)
+    _set_row_height(table.rows[1], 0.2500)
+    _set_row_height(table.rows[2], 0.2188)
+    _set_row_height(table.rows[3], 0.2188)
 
     start = _manual_value(session, "mileage_start")
     end = _manual_value(session, "mileage_end")
@@ -614,12 +621,12 @@ def _add_mileage_table(doc: Document, session) -> None:
     start_number = _plain_int(start)
     end_number = _plain_int(end)
     if start_number is not None and end_number is not None:
-        kms = _format_plain_number(end_number - start_number)
+        kms = _format_number(end_number - start_number)
 
     headers = ["MILEAGE START", "MILEAGE END", "KMS", "MOBILE VEHICLE"]
     values = [
-        _format_plain_number(start_number) if start_number is not None else "",
-        _format_plain_number(end_number) if end_number is not None else "",
+        _format_number(start_number) if start_number is not None else "",
+        _format_number(end_number) if end_number is not None else "",
         kms,
         _upper(_manual_value(session, "mobile_vehicle", "vehicle_used", "vehicle")),
     ]

@@ -269,6 +269,13 @@ def _merge_and_set_note_row(
     cell.value = _note_key_value(key, value)
 
 
+def _plain_int(value: Any) -> int | None:
+    number = pd.to_numeric(str(value).replace(",", ""), errors="coerce")
+    if pd.isna(number):
+        return None
+    return int(number)
+
+
 def _upper(value: Any) -> str:
     if value is None:
         return ""
@@ -600,30 +607,23 @@ def _write_manual_header(
         "computer_operators",
     )
     police_officers = _manual_value(session, "police_officers", "police")
-    mileage_start = _manual_value(session, "mileage_start")
-    mileage_end = _manual_value(session, "mileage_end")
-
-    danka_shifts = [s.strip() for s in str(danka_staff).split(" / ")] if danka_staff else []
-    police_shifts = [s.strip() for s in str(police_officers).split(" / ")] if police_officers else []
-    danka_1 = danka_shifts[0] if len(danka_shifts) > 0 else ""
-    danka_2 = danka_shifts[1] if len(danka_shifts) > 1 else ""
-    police_1 = police_shifts[0] if len(police_shifts) > 0 else ""
-    police_2 = police_shifts[1] if len(police_shifts) > 1 else ""
+    mileage_start = _plain_int(_manual_value(session, "mileage_start"))
+    mileage_end = _plain_int(_manual_value(session, "mileage_end"))
 
     _set_detail_center_cell(ws, "B6", report_date, number_format=DATE_FORMAT)
-    _set_detail_text_cell(ws, "E6", _upper(danka_1))
-    _set_detail_text_cell(ws, "E7", _upper(danka_2) if danka_2 else "")
-    _set_detail_text_cell(ws, "G6", _upper(police_1), vertical=None)
-    _set_detail_text_cell(ws, "G7", _upper(police_2) if police_2 else "", vertical=None)
+    _set_detail_text_cell(ws, "E6", _upper(danka_staff))
+    _set_detail_text_cell(ws, "E7", "")
+    _set_detail_text_cell(ws, "G6", _upper(police_officers), vertical=None)
+    _set_detail_text_cell(ws, "G7", "", vertical=None)
     _set_detail_center_cell(ws, "I6", int(summary["total_trucks_weighed"]), border=MEDIUM_BORDER, size=10)
     _set_detail_center_cell(ws, "J6", int(summary["charged_gvw_axle_trucks"]), border=MEDIUM_BORDER, size=10)
     _set_detail_center_cell(ws, "J7", int(summary["charged_dimensions_trucks"]))
-    _set_detail_center_cell(ws, "K6", mileage_start if mileage_start != "" else None, border=MEDIUM_BORDER)
-    _set_detail_center_cell(ws, "L6", mileage_end if mileage_end != "" else None)
+    _set_detail_center_cell(ws, "K6", mileage_start, border=MEDIUM_BORDER)
+    _set_detail_center_cell(ws, "L6", mileage_end)
     _set_detail_center_cell(
         ws,
         "M6",
-        "=L6-K6" if mileage_start != "" and mileage_end != "" else None,
+        "=L6-K6" if mileage_start is not None and mileage_end is not None else None,
         border=MEDIUM_BORDER,
         size=10,
     )
@@ -654,8 +654,6 @@ def _write_detail_rows(
 
     danka_shifts = [s.strip() for s in str(danka_staff).split(" / ")] if danka_staff else []
     police_shifts = [s.strip() for s in str(police_officers).split(" / ")] if police_officers else []
-    danka_1 = danka_shifts[0] if len(danka_shifts) > 0 else ""
-    police_1 = police_shifts[0] if len(police_shifts) > 0 else ""
 
     for offset, (_, record) in enumerate(records.iterrows()):
         row = 11 + offset
@@ -672,8 +670,8 @@ def _write_detail_rows(
             f"H{row}": _upper(record["origin"]),
             f"I{row}": _upper(record["destination"]),
             f"J{row}": _upper(record["cargo"]),
-            f"K{row}": _upper(danka_1),
-            f"L{row}": _upper(police_1),
+            f"K{row}": _upper(danka_staff),
+            f"L{row}": _upper(police_officers),
             f"M{row}": _upper(record["remarks"]),
             f"N{row}": route,
         }
