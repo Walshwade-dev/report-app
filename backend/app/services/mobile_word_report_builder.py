@@ -26,18 +26,18 @@ LETTER_HEIGHT_INCHES = 11.0
 LANDSCAPE_WIDTH_INCHES = 11.0
 LANDSCAPE_HEIGHT_INCHES = 8.5
 VEHICLE_TABLE_WIDTHS = [
-    1236,
-    1260,
-    1440,
-    720,
-    1530,
-    1530,
-    1260,
-    1350,
-    1260,
-    2610,
-    1440,
-    1170,
+    1313,
+    1155,
+    1300,
+    656,
+    774,
+    774,
+    1313,
+    1313,
+    1076,
+    1969,
+    1562,
+    1195,
 ]
 
 
@@ -125,7 +125,7 @@ def _set_section_landscape(section) -> None:
     section.top_margin = Inches(0.75)
     section.bottom_margin = Inches(0.0)
     section.left_margin = Inches(0.5)
-    section.right_margin = Inches(0.0)
+    section.right_margin = Inches(0.5)
 
 
 def _add_landscape_section(doc: Document):
@@ -602,10 +602,15 @@ def _add_vehicle_table(
     ]
     subheaders = ["", "", "", "", "GVW", "AXLE", "", "", "", "", "", ""]
     for col, header in enumerate(headers):
-        _set_cell_text(table.cell(0, col), header, size=8, bold=True)
+        _set_cell_text(table.cell(0, col), header, size=11, bold=True)
         _set_cell_width(table.cell(0, col), VEHICLE_TABLE_WIDTHS[col])
-        _set_cell_text(table.cell(1, col), subheaders[col], size=8, bold=True)
+        _set_cell_text(table.cell(1, col), subheaders[col], size=11, bold=True)
         _set_cell_width(table.cell(1, col), VEHICLE_TABLE_WIDTHS[col])
+
+    cell_0_4 = table.cell(0, 4)
+    cell_0_5 = table.cell(0, 5)
+    cell_0_4.merge(cell_0_5)
+    _set_cell_text(cell_0_4, "EXCESS WEIGHT", size=11, bold=True)
 
     # Table 6 (full vehicle list) vs Table 7 (charged >2T) have different header row heights
     if "CHARGED" in heading.upper():
@@ -617,21 +622,15 @@ def _add_vehicle_table(
 
     if records.empty:
         for col in range(12):
-            _set_cell_text(table.cell(2, col), "NIL" if col == 0 else "", size=7)
+            _set_cell_text(table.cell(2, col), "NIL" if col == 0 else "", size=11)
             _set_cell_width(table.cell(2, col), VEHICLE_TABLE_WIDTHS[col])
-        _set_row_height(table.rows[2], 0.3056)
-        return
-
-    for row_index, (_, record) in enumerate(records.iterrows(), start=2):
-        _set_row_height(table.rows[row_index], 0.3056)
-        for col, value in enumerate(_vehicle_row_values(record, session, report_date)):
-            align = (
-                WD_ALIGN_PARAGRAPH.LEFT
-                if col in {2, 8, 9, 10}
-                else WD_ALIGN_PARAGRAPH.CENTER
-            )
-            _set_cell_text(table.cell(row_index, col), value, size=7, align=align)
-            _set_cell_width(table.cell(row_index, col), VEHICLE_TABLE_WIDTHS[col])
+    else:
+        for row_index, (_, record) in enumerate(records.iterrows(), start=2):
+            row_values = _vehicle_row_values(record, session, report_date)
+            for col, value in enumerate(row_values):
+                align = WD_ALIGN_PARAGRAPH.RIGHT if col in (4, 5) else WD_ALIGN_PARAGRAPH.LEFT
+                _set_cell_text(table.cell(row_index, col), value, size=11, align=align)
+                _set_cell_width(table.cell(row_index, col), VEHICLE_TABLE_WIDTHS[col])
 
 
 def _add_mileage_table(doc: Document, session) -> None:
@@ -830,7 +829,7 @@ def build_mobile_word_report(session) -> io.BytesIO:
     )
 
     _add_landscape_section(doc)
-    _add_vehicle_table(doc, "DETAILS OF VEHICLES", records, session, report_date)
+    _add_vehicle_table(doc, "6.0 DETAILS OF VEHICLES", records, session, report_date)
 
     _add_landscape_section(doc)
     charged_over_two = records.loc[
@@ -839,7 +838,7 @@ def build_mobile_word_report(session) -> io.BytesIO:
     ].copy()
     _add_vehicle_table(
         doc,
-        "CHARGED ABOVE 2 TONNES ON GVW",
+        "7.0 CHARGED ABOVE 2 TONNES ON GVW",
         charged_over_two,
         session,
         report_date,
