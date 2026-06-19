@@ -157,6 +157,7 @@ Use this section as the running project history.
 2026-05-14 - Updated the mobile Excel graph and Notes block from screenshot comparison: disabled all chart data labels, rotated category-axis labels, and merged the red formulae note across the full Notes width.
 2026-05-14 - Narrowed the mobile Excel chart and Notes block by about one quarter, changed graph series colors to dark blue/maroon, and made Notes rows left-aligned rich text with bold keys and equals signs.
 2026-05-14 - Added mobile Word report generation and download endpoint using uploaded mobile register data and mobile manual inputs.
+2026-06-19 - Refined mobile Excel report styling: updated column O:X width to 0.75", rotated chart x-axis 45 degrees, updated note block merging and rich text bolding, enforced black text, and applied a lighter grey fill (#F2F2F2) with adjusted borders for table headers. Updated the generated file name to use the .xls extension and matched the format JUJA WEIGHBRIDGE MOBILE REPORT 1 19.06.26.xls.
 ```
 
 ### Latest Backend Implementation Step

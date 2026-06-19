@@ -85,6 +85,15 @@ def get_report_filename(session: ReportSession, ext: str) -> str:
     return f"{station_name} {bound_name} DAILY REPORT {date_part}.{ext}"
 
 
+def get_mobile_report_filename(session: ReportSession, ext: str) -> str:
+    station_name = (session.station or "STATION").upper()
+    if "WEIGHBRIDGE" not in station_name:
+        station_name = f"{station_name} WEIGHBRIDGE"
+    bound_name = (session.bound or "BOUND").upper()
+    date_part = format_filename_date(session.report_date)
+    return f"{station_name} MOBILE REPORT {bound_name} {date_part}.{ext}"
+
+
 def serialize_session(session: ReportSession) -> dict:
     excel_report_ready = (
         "daily_hour" in session.dataframes
@@ -756,12 +765,7 @@ async def download_report_session_mobile_excel_report(report_id: str):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    filename = (
-        f"{session.station}_{session.bound}_{session.report_date}_mobile_report"
-        .upper()
-        .replace("_", " ")
-        + ".xlsx"
-    )
+    filename = get_mobile_report_filename(session, "xls")
 
     return Response(
         content=file_stream.getvalue(),
@@ -782,12 +786,7 @@ async def download_report_session_mobile_word_report(report_id: str):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    filename = (
-        f"{session.station}_{session.bound}_{session.report_date}_mobile_report"
-        .upper()
-        .replace("_", " ")
-        + ".docx"
-    )
+    filename = get_mobile_report_filename(session, "docx")
 
     return Response(
         content=file_stream.getvalue(),

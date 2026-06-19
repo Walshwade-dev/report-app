@@ -37,9 +37,23 @@ MEDIUM_BORDER = Border(
     top=MEDIUM_SIDE,
     bottom=MEDIUM_SIDE,
 )
+THICK_SIDE = Side(style="thick", color="000000")
+THICK_BORDER = Border(
+    left=THICK_SIDE,
+    right=THICK_SIDE,
+    top=THICK_SIDE,
+    bottom=THICK_SIDE,
+)
+MEDIUM_BORDER_THIN_BOTTOM = Border(
+    left=MEDIUM_SIDE,
+    right=MEDIUM_SIDE,
+    top=MEDIUM_SIDE,
+    bottom=THIN_SIDE,
+)
 
 NO_FILL = PatternFill(fill_type=None)
 RED_FILL = PatternFill("solid", fgColor="FFFF0000")
+LIGHT_GREY_FILL = PatternFill("solid", fgColor="F2F2F2")
 DARK_BLUE_LINE = "1F4E79"
 MAROON_LINE = "800000"
 
@@ -58,16 +72,16 @@ SUMMARY_COLUMN_WIDTHS = {
     "L": 13.29,
     "M": 12.43,
     "N": 13.14,
-    "O": 13.14,
-    "P": 13.14,
-    "Q": 13.14,
-    "R": 13.14,
-    "S": 13.14,
-    "T": 13.14,
-    "U": 13.14,
-    "V": 13.14,
-    "W": 13.0,
-    "X": 13.0,
+    "O": 8.43,
+    "P": 8.43,
+    "Q": 8.43,
+    "R": 8.43,
+    "S": 8.43,
+    "T": 8.43,
+    "U": 8.43,
+    "V": 8.43,
+    "W": 8.43,
+    "X": 8.43,
 }
 
 DETAIL_COLUMN_WIDTHS = {
@@ -215,7 +229,7 @@ def _set_detail_center_cell(
 def _chart_axis_text_properties() -> RichText:
     return RichText(
         bodyPr=RichTextProperties(
-            rot=-60000000,
+            rot=-2700000,
             spcFirstLastPara=True,
             vertOverflow="ellipsis",
             vert="horz",
@@ -243,8 +257,8 @@ def _chart_axis_text_properties() -> RichText:
 
 def _note_key_value(key: str, value: str) -> CellRichText:
     return CellRichText(
-        TextBlock(InlineFont(b=True), f"{key} ="),
-        f" {value}",
+        TextBlock(InlineFont(b=True, color="000000"), key),
+        TextBlock(InlineFont(b=False, color="000000"), f" = {value}"),
     )
 
 
@@ -382,23 +396,23 @@ def _setup_summary_sheet(ws: Worksheet) -> None:
         _set_cell(ws, coordinate, label, bold=True, border=MEDIUM_BORDER)
 
     _merge_and_set(ws, "O32:V32", "Notes", size=28, bold=True, border=MEDIUM_BORDER, wrap_text=False)
-    _set_cell(
+    _merge_and_set(
         ws,
-        "O33",
-        "Red = formulae, do not edit",
+        "O33:V33",
+        _note_key_value("RED", "formulae, do not edit"),
         size=11,
         bold=False,
         fill=RED_FILL,
-        border=THIN_BORDER,
+        border=MEDIUM_BORDER,
         horizontal="left",
     )
     _merge_and_set(
         ws,
         "O34:V34",
-        "No fill = manual entries fill in from data collection forms",
+        _note_key_value("No fill", "manual entries fill in from data collection forms"),
         size=11,
         bold=False,
-        border=THIN_BORDER,
+        border=MEDIUM_BORDER,
         horizontal="left",
     )
     _merge_and_set(
@@ -427,8 +441,8 @@ def _setup_detail_sheet(ws: Worksheet, title: str) -> None:
     ws.row_dimensions[8].height = 15.75
     ws.row_dimensions[10].height = 30.0
 
-    _merge_and_set(ws, "B2:N2", title, size=14, bold=True, border=None)
-    _merge_and_set(ws, "K4:M4", "MILEAGE", bold=True, border=MEDIUM_BORDER)
+    _merge_and_set(ws, "B2:N2", title, size=14, bold=True, border=THICK_BORDER, fill=LIGHT_GREY_FILL)
+    _merge_and_set(ws, "K4:M4", "MILEAGE", bold=True, border=MEDIUM_BORDER, fill=LIGHT_GREY_FILL)
 
     for coordinate, value in {
         "B5": "DATE",
@@ -441,21 +455,22 @@ def _setup_detail_sheet(ws: Worksheet, title: str) -> None:
         "M5": "KMS",
         "N5": "MOBILE VEHICLE",
     }.items():
-        _set_cell(ws, coordinate, value, bold=True, border=MEDIUM_BORDER)
+        _set_cell(ws, coordinate, value, bold=True, border=MEDIUM_BORDER, fill=LIGHT_GREY_FILL, vertical="bottom")
 
-    _merge_and_set(ws, "C5:D5", "", border=MEDIUM_BORDER)
-    _merge_and_set(ws, "E5:F5", "DANKA STAFF", bold=True, border=MEDIUM_BORDER)
-    _merge_and_set(ws, "G5:H5", "POLICE OFFICERS", bold=True, border=MEDIUM_BORDER)
+    _merge_and_set(ws, "C5:D5", "", border=MEDIUM_BORDER, fill=LIGHT_GREY_FILL, vertical="bottom")
+    _merge_and_set(ws, "E5:F5", "DANKA STAFF", bold=True, border=MEDIUM_BORDER, fill=LIGHT_GREY_FILL, vertical="bottom")
+    _merge_and_set(ws, "G5:H5", "POLICE OFFICERS", bold=True, border=MEDIUM_BORDER, fill=LIGHT_GREY_FILL, vertical="bottom")
     _merge_and_set(ws, "C6:D6", "", border=THIN_BORDER)
     _merge_and_set(ws, "C7:D7", "", border=THIN_BORDER)
+    _set_cell(ws, "B7", "", border=THIN_BORDER)
 
     _set_cell(ws, "G8", "TOTAL", bold=True, border=None)
-    _set_cell(ws, "J8", "=J7+J6", bold=True, fill=RED_FILL)
-    _set_cell(ws, "M8", "=M6", bold=True, fill=RED_FILL)
+    _set_cell(ws, "J8", "=J7+J6", bold=True)
+    _set_cell(ws, "M8", "=M6", bold=True)
 
-    _merge_and_set(ws, "B9:E9", "", border=MEDIUM_BORDER)
-    _merge_and_set(ws, "F9:G9", "EXCESS   WEIGHT", bold=True, border=MEDIUM_BORDER)
-    _merge_and_set(ws, "H9:N9", "", border=MEDIUM_BORDER)
+    _merge_and_set(ws, "B9:E9", "", border=MEDIUM_BORDER_THIN_BOTTOM)
+    _merge_and_set(ws, "F9:G9", "EXCESS   WEIGHT", bold=True, border=MEDIUM_BORDER_THIN_BOTTOM, fill=LIGHT_GREY_FILL)
+    _merge_and_set(ws, "H9:N9", "", border=MEDIUM_BORDER_THIN_BOTTOM)
 
     headers = {
         "B10": "DATE  WEIGHED",
@@ -478,8 +493,10 @@ def _setup_detail_sheet(ws: Worksheet, title: str) -> None:
             coordinate,
             value,
             bold=True,
-            border=MEDIUM_BORDER,
+            border=THIN_BORDER,
+            fill=LIGHT_GREY_FILL,
             horizontal="center",
+            vertical="bottom",
         )
 
 
