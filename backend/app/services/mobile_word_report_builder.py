@@ -134,6 +134,16 @@ def _add_landscape_section(doc: Document):
     return section
 
 
+def _add_initial_landscape_section(doc: Document, report_date, session):
+    section = doc.add_section(WD_SECTION.NEW_PAGE)
+    _set_section_landscape(section)
+    section.header.is_linked_to_previous = False
+    section.footer.is_linked_to_previous = False
+    add_header(section)
+    _add_mobile_footer(section, report_date, session)
+    return section
+
+
 def _set_table_width(table, width_twips: int) -> None:
     tbl_pr = table._tbl.tblPr
     tbl_w = tbl_pr.find(qn("w:tblW"))
@@ -413,10 +423,25 @@ def _add_prepared_approved(doc: Document, session) -> None:
         _add_bold_line(doc, f"Approved by: {session.confirmed_by}")
 
 
-def _add_daily_hourly_data(doc: Document, records: pd.DataFrame) -> None:
-    _add_heading(doc, "DAILY HOURLY DATA")
-    table = doc.add_table(rows=26, cols=3)
-    widths = [1280, 1415, 1663]
+def _add_daily_hourly_data(doc: Document, records: pd.DataFrame, session) -> None:
+    _add_report_title(doc, session)
+    _add_heading(doc, "2.0 DAILY HOURLY DATA", size=11)
+    
+    # Borderless layout table
+    layout_table = doc.add_table(rows=1, cols=2)
+    layout_table.autofit = False
+    _set_fixed_table_layout(layout_table)
+    _set_table_grid(layout_table, [3780, 11340])
+    _set_table_width(layout_table, 15120)
+    
+    left_cell = layout_table.cell(0, 0)
+    _set_cell_width(left_cell, 3780)
+    right_cell = layout_table.cell(0, 1)
+    _set_cell_width(right_cell, 11340)
+    
+    # Left Cell: Table
+    table = left_cell.add_table(rows=26, cols=3)
+    widths = [1110, 1227, 1443]
     _set_fixed_table_layout(table)
     _set_table_grid(table, widths)
     _set_table_width(table, sum(widths))
@@ -428,7 +453,7 @@ def _add_daily_hourly_data(doc: Document, records: pd.DataFrame) -> None:
         _set_row_height(row, 0.2083)
 
     for col, text in enumerate(["", "WEIGHED", "CHARGED & PROHIBITED"]):
-        _set_cell_text(table.cell(0, col), text, size=8, bold=True)
+        _set_cell_text(table.cell(0, col), text, size=11, bold=True)
         _set_cell_width(table.cell(0, col), widths[col])
 
     totals = {"weighed": 0, "charged": 0}
@@ -437,17 +462,18 @@ def _add_daily_hourly_data(doc: Document, records: pd.DataFrame) -> None:
         totals["weighed"] += values["weighed"]
         totals["charged"] += values["charged"]
         for col, value in enumerate([hour, values["weighed"], values["charged"]]):
-            _set_cell_text(table.cell(index, col), value, size=8)
+            _set_cell_text(table.cell(index, col), value, size=11)
             _set_cell_width(table.cell(index, col), widths[col])
 
     for col, value in enumerate(["Total", totals["weighed"], totals["charged"]]):
-        _set_cell_text(table.cell(25, col), value, size=8, bold=True)
+        _set_cell_text(table.cell(25, col), value, size=11, bold=True)
         _set_cell_width(table.cell(25, col), widths[col])
 
+    # Right Cell: Chart
     chart_image = _create_mobile_hourly_chart(records)
-    paragraph = doc.add_paragraph()
+    paragraph = right_cell.paragraphs[0]
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    paragraph.add_run().add_picture(chart_image, width=Inches(6.4))
+    paragraph.add_run().add_picture(chart_image, width=Inches(7.5))
 
 
 def _add_daily_summary(doc: Document, records: pd.DataFrame, session) -> None:
@@ -746,8 +772,8 @@ def build_mobile_word_report(session) -> io.BytesIO:
     _add_daily_hour_statistics(doc, records, report_date)
     _add_prepared_approved(doc, session)
 
-    _add_landscape_section(doc)
-    _add_daily_hourly_data(doc, records)
+    _add_initial_landscape_section(doc, report_date, session)
+    _add_daily_hourly_data(doc, records, session)
 
     _add_landscape_section(doc)
     _add_daily_summary(doc, records, session)
