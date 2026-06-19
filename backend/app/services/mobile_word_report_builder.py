@@ -14,7 +14,7 @@ from docx.shared import Inches, Pt
 
 from app.services.daily_hour_processor import HOURS
 from app.services.mobile_report_processor import summarize_mobile_report
-from app.services.report_layout import enable_field_updates
+from app.services.report_layout import enable_field_updates, add_header, add_field, style_footer_run
 
 
 FONT_NAME = "Arial"
@@ -338,7 +338,7 @@ def _create_mobile_hourly_chart(records: pd.DataFrame) -> io.BytesIO:
 
 
 def _add_daily_hour_statistics(doc: Document, records: pd.DataFrame, report_date) -> None:
-    _add_heading(doc, "DAILY AND HOURLY STATISTICS")
+    _add_heading(doc, "1.0 DAILY AND HOURLY STATISTICS", size=11)
     table = doc.add_table(rows=27, cols=6)
     table.autofit = False
     table.allow_autofit = False
@@ -362,13 +362,18 @@ def _add_daily_hour_statistics(doc: Document, records: pd.DataFrame, report_date
         "Charged & Prohibited Trucks",
         "Excess Weight",
     ]
-    headers_2 = ["Date", "Time", "Trucks Weighed", "Warned Trucks", "Charged & Prohibited Trucks", "GVW (KGS)"]
     for col, text in enumerate(headers_1):
-        _set_cell_text(table.cell(0, col), text, size=9, bold=True)
+        _set_cell_text(table.cell(0, col), text, size=11, bold=True)
         _set_cell_width(table.cell(0, col), widths[col])
-    for col, text in enumerate(headers_2):
-        _set_cell_text(table.cell(1, col), text, size=9, bold=True)
-        _set_cell_width(table.cell(1, col), widths[col])
+        
+    _set_cell_text(table.cell(1, 5), "GVW (KGS)", size=11, bold=True)
+    _set_cell_width(table.cell(1, 5), widths[5])
+
+    for col in range(5):
+        cell_0 = table.cell(0, col)
+        cell_1 = table.cell(1, col)
+        cell_0.merge(cell_1)
+        _set_cell_text(cell_0, headers_1[col], size=11, bold=True)
 
     totals = {"weighed": 0, "warned": 0, "charged": 0, "excess_gvw": 0}
     for index, hour in enumerate(HOURS, start=2):
@@ -385,7 +390,7 @@ def _add_daily_hour_statistics(doc: Document, records: pd.DataFrame, report_date
             _format_plain_number(values["excess_gvw"]),
         ]
         for col, value in enumerate(row_values):
-            _set_cell_text(table.cell(index, col), value, size=8)
+            _set_cell_text(table.cell(index, col), value, size=11)
             _set_cell_width(table.cell(index, col), widths[col])
 
     total_row = table.rows[26]
@@ -397,7 +402,7 @@ def _add_daily_hour_statistics(doc: Document, records: pd.DataFrame, report_date
         totals["charged"],
         _format_plain_number(totals["excess_gvw"]),
     ]):
-        _set_cell_text(total_row.cells[col], value, size=8, bold=True)
+        _set_cell_text(total_row.cells[col], value, size=11, bold=True)
         _set_cell_width(total_row.cells[col], widths[col])
 
 
@@ -670,6 +675,48 @@ def _add_location_notes(doc: Document, session) -> None:
         _add_bold_line(doc, "POLICE OFFICERS:        .")
 
 
+def _add_mobile_footer(section, report_date, session) -> None:
+    footer = section.footer
+    paragraph = footer.paragraphs[0]
+    paragraph.clear()
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    station = str(getattr(session, "station", "JUJA")).upper()
+    if not station or station == "NONE":
+        station = "JUJA"
+        
+    date_obj = _date_value(report_date)
+    day = date_obj.day
+    suffix = "TH" if 11 <= day <= 13 else {1: "ST", 2: "ND", 3: "RD"}.get(day % 10, "TH")
+    month_year = date_obj.strftime("%B, %Y").upper()
+    date_str = f"{day}{suffix} {month_year}"
+
+    prefix = f"KeNHA/WB/MTCE/43339/2025 {station} MOBILE REPORT 1 DATE ({date_str})   Page "
+    run_prefix = paragraph.add_run(prefix)
+    style_footer_run(run_prefix)
+
+    add_field(paragraph, "PAGE")
+    run_end = paragraph.add_run(" of ")
+    style_footer_run(run_end)
+    add_field(paragraph, "NUMPAGES")
+
+
+def _add_report_title(doc: Document, session) -> None:
+    paragraph = doc.add_paragraph()
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    paragraph.paragraph_format.space_after = Pt(12)
+    
+    station = str(getattr(session, "station", "JUJA")).upper()
+    if not station or station == "NONE":
+        station = "JUJA"
+        
+    run = paragraph.add_run(f"{station} MOBILE DAILY REPORT 1")
+    run.bold = True
+    run.underline = True
+    run.font.name = FONT_NAME
+    run.font.size = Pt(11)
+
+
 def build_mobile_word_report(session) -> io.BytesIO:
     if (
         "mobile_report" not in session.dataframes
@@ -689,8 +736,13 @@ def build_mobile_word_report(session) -> io.BytesIO:
     report_date = _date_value(records["date_time"].iloc[0])
     doc = Document()
     enable_field_updates(doc)
-    _set_section_portrait(doc.sections[0])
+    
+    section_0 = doc.sections[0]
+    _set_section_portrait(section_0)
+    add_header(section_0)
+    _add_mobile_footer(section_0, report_date, session)
 
+    _add_report_title(doc, session)
     _add_daily_hour_statistics(doc, records, report_date)
     _add_prepared_approved(doc, session)
 
