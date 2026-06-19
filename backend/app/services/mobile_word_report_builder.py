@@ -776,12 +776,12 @@ def build_mobile_word_report(session) -> io.BytesIO:
     _add_daily_hourly_data(doc, records, session)
 
     _add_landscape_section(doc)
+    _add_report_title(doc, session)
     _add_daily_summary(doc, records, session)
 
-    _add_landscape_section(doc)
     _add_nil_table(
         doc,
-        "TRANSGRESSION",
+        "4.0 TRANSGRESSION",
         [
             "Date",
             "Time received",
@@ -813,18 +813,16 @@ def build_mobile_word_report(session) -> io.BytesIO:
         "Next WB Recepient",
     ]
 
-    _add_landscape_section(doc)
     _add_nil_table(
         doc,
-        "TRANSGRESSION REPORT",
+        "I. TRANSGRESSION REPORT",
         transgression_headers,
         [1044, 949, 949, 1044, 1614, 1424, 1543, 1206, 1276, 1482, 864, 1447],
     )
 
-    _add_landscape_section(doc)
     _add_nil_table(
         doc,
-        "NUMBER plates removed",
+        "5.0 NUMBER plates removed",
         transgression_headers,
         [1046, 951, 951, 1046, 1617, 1427, 1546, 1209, 1279, 1485, 866, 1450],
     )
