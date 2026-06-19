@@ -246,12 +246,14 @@ def _set_cell_text(
     _style_cell(cell, size=size, bold=bold, align=align)
 
 
-def _add_heading(doc: Document, text: str, *, size: float = 11) -> None:
+def _add_heading(doc: Document, text: str, *, size: float = 11, underline: bool = True) -> None:
     paragraph = doc.add_paragraph()
     paragraph.paragraph_format.space_before = Pt(0)
     paragraph.paragraph_format.space_after = Pt(6)
-    run = paragraph.add_run(text)
+    run = paragraph.add_run(str(text).upper())
     run.bold = True
+    if underline:
+        run.underline = True
     run.font.name = FONT_NAME
     run.font.size = Pt(size)
 
@@ -348,7 +350,7 @@ def _create_mobile_hourly_chart(records: pd.DataFrame) -> io.BytesIO:
 
 
 def _add_daily_hour_statistics(doc: Document, records: pd.DataFrame, report_date) -> None:
-    _add_heading(doc, "1.0 DAILY AND HOURLY STATISTICS", size=11)
+    _add_heading(doc, "1.0 DAILY AND HOURLY STATISTICS", size=11, underline=False)
     table = doc.add_table(rows=27, cols=6)
     table.autofit = False
     table.allow_autofit = False
@@ -510,9 +512,9 @@ def _add_daily_summary(doc: Document, records: pd.DataFrame, session) -> None:
         values["manually_weighed"],
     ]
     for col, header in enumerate(headers):
-        _set_cell_text(table.cell(0, col), header, size=8, bold=True)
+        _set_cell_text(table.cell(0, col), header, size=11, bold=True)
         _set_cell_width(table.cell(0, col), widths[col])
-        _set_cell_text(table.cell(1, col), body[col], size=8)
+        _set_cell_text(table.cell(1, col), body[col], size=11)
         _set_cell_width(table.cell(1, col), widths[col])
 
 
@@ -536,9 +538,9 @@ def _add_nil_table(doc: Document, heading: str, headers: list[str], widths: list
         _set_row_height(table.rows[1], 0.2576)
 
     for col, header in enumerate(headers):
-        _set_cell_text(table.cell(0, col), header, size=7, bold=True)
+        _set_cell_text(table.cell(0, col), header, size=11, bold=True)
         _set_cell_width(table.cell(0, col), widths[col])
-        _set_cell_text(table.cell(1, col), "NIL" if col == 0 else "", size=7)
+        _set_cell_text(table.cell(1, col), "NIL" if col == 0 else "", size=11)
         _set_cell_width(table.cell(1, col), widths[col])
 
 
