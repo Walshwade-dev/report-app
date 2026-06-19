@@ -322,6 +322,64 @@ async def get_report_session_summary_cards(report_id: str):
     return build_summary_cards(require_session(report_id))
 
 
+@router.get("/report-sessions/analytics/dashboard")
+async def get_analytics_dashboard():
+    sessions = []
+    for metadata_path in sorted(report_session_store.sessions_dir.glob("*.json")):
+        try:
+            session = report_session_store.get(metadata_path.stem)
+            if session:
+                sessions.append(session)
+        except Exception:
+            pass
+
+    x_total = 0
+    y_total = 0
+    g_total = 0
+    z_total = 0
+    r_total = 0
+    wideloads = 0
+    
+    mobile_weighed = 0
+    mobile_warned = 0
+    mobile_charged = 0
+    
+    for s in sessions:
+        if s.sections.get("mobile_report", {}).get("status") == "ready":
+            summary = s.sections["mobile_report"].get("extra", {}).get("summary", {})
+            mobile_weighed += summary.get("total_trucks_weighed", 0)
+            mobile_warned += summary.get("warned_trucks", 0)
+            mobile_charged += summary.get("charged_trucks", 0)
+            
+        if s.sections.get("daily_hour", {}).get("status") == "ready":
+            x = daily_hour_total_column(s, "X") or 0
+            y = daily_hour_total_column(s, "Y") or 0
+            g = daily_hour_total_column(s, "G") or 0
+            z = daily_hour_total_column(s, "Z") or 0
+            r = daily_hour_total_column(s, "R") or 0
+            x_total += x
+            y_total += y
+            g_total += g
+            z_total += z
+            r_total += r
+            wideloads += get_wideload_count_from_session(s) or 0
+
+    return {
+        "static": {
+            "weighed": x_total,
+            "overloads": max(y_total - g_total, 0),
+            "minGross": g_total,
+            "chargedRedist": f"{z_total} / {r_total}",
+            "reportsGenerated": len([s for s in sessions if s.sections.get("daily_hour", {}).get("status") == "ready"]),
+        },
+        "mobile": {
+            "weighed": mobile_weighed,
+            "warned": mobile_warned,
+            "charged": mobile_charged,
+        }
+    }
+
+
 @router.patch("/report-sessions/{report_id}/metadata")
 async def update_report_session_metadata(
     report_id: str,
