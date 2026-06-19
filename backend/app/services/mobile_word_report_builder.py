@@ -215,8 +215,9 @@ def _style_cell(
     size: float = 8,
     bold: bool = False,
     align=WD_ALIGN_PARAGRAPH.CENTER,
+    valign=WD_CELL_VERTICAL_ALIGNMENT.CENTER,
 ) -> None:
-    cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+    cell.vertical_alignment = valign
     for paragraph in cell.paragraphs:
         paragraph.alignment = align
         paragraph.paragraph_format.space_before = Pt(0)
@@ -241,9 +242,10 @@ def _set_cell_text(
     size: float = 8,
     bold: bool = False,
     align=WD_ALIGN_PARAGRAPH.CENTER,
+    valign=WD_CELL_VERTICAL_ALIGNMENT.CENTER,
 ) -> None:
     cell.text = "" if text is None else str(text)
-    _style_cell(cell, size=size, bold=bold, align=align)
+    _style_cell(cell, size=size, bold=bold, align=align, valign=valign)
 
 
 def _add_heading(doc: Document, text: str, *, size: float = 11, underline: bool = True) -> None:
@@ -266,6 +268,21 @@ def _add_bold_line(doc: Document, text: str, *, size: float = 11) -> None:
     run.bold = True
     run.font.name = FONT_NAME
     run.font.size = Pt(size)
+
+
+def _add_mixed_line(doc: Document, bold_prefix: str, normal_text: str) -> None:
+    paragraph = doc.add_paragraph()
+    paragraph.paragraph_format.space_before = Pt(0)
+    paragraph.paragraph_format.space_after = Pt(0)
+    run1 = paragraph.add_run(bold_prefix)
+    run1.bold = True
+    run1.font.name = FONT_NAME
+    run1.font.size = Pt(11)
+    
+    run2 = paragraph.add_run(normal_text)
+    run2.bold = False
+    run2.font.name = FONT_NAME
+    run2.font.size = Pt(11)
 
 
 def _hour_records(records: pd.DataFrame, hour: str) -> pd.DataFrame:
@@ -636,11 +653,11 @@ def _add_vehicle_table(
 def _add_mileage_table(doc: Document, session) -> None:
     _add_heading(doc, "LOCATION REPORT")
     table = doc.add_table(rows=4, cols=4)
-    widths = [4500, 4230, 2790, 3780]
+    widths = [4502, 4230, 2790, 3785]
     _set_fixed_table_layout(table)
     _set_table_grid(table, widths)
     _set_table_width(table, sum(widths))
-    _set_table_borders(table)
+    _set_table_borders(table, size="12")
 
     _set_row_height(table.rows[0], 0.4375)
     _set_row_height(table.rows[1], 0.2500)
@@ -664,15 +681,15 @@ def _add_mileage_table(doc: Document, session) -> None:
     ]
 
     for col, header in enumerate(headers):
-        _set_cell_text(table.cell(0, col), header, size=12, bold=True)
+        _set_cell_text(table.cell(0, col), header.upper(), size=11, bold=True, valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM)
         _set_cell_width(table.cell(0, col), widths[col])
-        _set_cell_text(table.cell(1, col), values[col], size=12)
+        _set_cell_text(table.cell(1, col), values[col], size=11, valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM)
         _set_cell_width(table.cell(1, col), widths[col])
 
     for col in range(4):
-        _set_cell_text(table.cell(2, col), "", size=12)
+        _set_cell_text(table.cell(2, col), "", size=11, valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM)
         _set_cell_width(table.cell(2, col), widths[col])
-    _set_cell_text(table.cell(3, 2), f"{kms} KMS" if kms else "", size=12, bold=True)
+    _set_cell_text(table.cell(3, 2), f"{kms} KMS" if kms else "", size=11, bold=True, valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM)
 
 
 def _add_location_notes(doc: Document, session) -> None:
@@ -683,23 +700,23 @@ def _add_location_notes(doc: Document, session) -> None:
     danka_shifts = [s.strip() for s in str(danka_staff).split(" / ")] if danka_staff else []
     police_shifts = [s.strip() for s in str(police).split(" / ")] if police else []
 
-    _add_bold_line(doc, f"ACTUAL ROUTE: \t{route}.")
+    _add_mixed_line(doc, "ACTUAL ROUTE: \t", f"{route}.")
 
     if danka_shifts:
-        danka_line_1 = f"DANKA PERSONNEL:    {_upper(danka_shifts[0])}."
-        _add_bold_line(doc, danka_line_1)
+        danka_line_1 = f"{_upper(danka_shifts[0])}."
+        _add_mixed_line(doc, "DANKA PERSONNEL:    ", danka_line_1)
         for shift in danka_shifts[1:]:
-            _add_bold_line(doc, f"{' ' * 20}{_upper(shift)}.")
+            _add_mixed_line(doc, f"{' ' * 20}", f"{_upper(shift)}.")
     else:
-        _add_bold_line(doc, "DANKA PERSONNEL:    .")
+        _add_mixed_line(doc, "DANKA PERSONNEL:    ", ".")
 
     if police_shifts:
-        police_line_1 = f"POLICE OFFICERS:        {_upper(police_shifts[0])}."
-        _add_bold_line(doc, police_line_1)
+        police_line_1 = f"{_upper(police_shifts[0])}."
+        _add_mixed_line(doc, "POLICE OFFICERS:        ", police_line_1)
         for shift in police_shifts[1:]:
-            _add_bold_line(doc, f"{' ' * 24}{_upper(shift)}.")
+            _add_mixed_line(doc, f"{' ' * 24}", f"{_upper(shift)}.")
     else:
-        _add_bold_line(doc, "POLICE OFFICERS:        .")
+        _add_mixed_line(doc, "POLICE OFFICERS:        ", ".")
 
 
 def _add_mobile_footer(section, report_date, session) -> None:
