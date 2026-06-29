@@ -229,7 +229,7 @@ def _set_detail_center_cell(
 def _chart_axis_text_properties() -> RichText:
     return RichText(
         bodyPr=RichTextProperties(
-            rot=-2700000,
+            rot=-60000000,
             spcFirstLastPara=True,
             vertOverflow="ellipsis",
             vert="horz",
@@ -399,7 +399,7 @@ def _setup_summary_sheet(ws: Worksheet) -> None:
     _merge_and_set(
         ws,
         "O33:V33",
-        _note_key_value("RED", "formulae, do not edit"),
+        _note_key_value("Red", "formulae, do not edit"),
         size=11,
         bold=False,
         fill=RED_FILL,
@@ -455,7 +455,8 @@ def _setup_detail_sheet(ws: Worksheet, title: str) -> None:
         "M5": "KMS",
         "N5": "MOBILE VEHICLE",
     }.items():
-        _set_cell(ws, coordinate, value, bold=True, border=MEDIUM_BORDER, fill=LIGHT_GREY_FILL, vertical="bottom")
+        fill = None if coordinate.startswith("B") else LIGHT_GREY_FILL
+        _set_cell(ws, coordinate, value, bold=True, border=MEDIUM_BORDER, fill=fill, vertical="bottom")
 
     _merge_and_set(ws, "C5:D5", "", border=MEDIUM_BORDER, fill=LIGHT_GREY_FILL, vertical="bottom")
     _merge_and_set(ws, "E5:F5", "DANKA STAFF", bold=True, border=MEDIUM_BORDER, fill=LIGHT_GREY_FILL, vertical="bottom")
@@ -488,13 +489,14 @@ def _setup_detail_sheet(ws: Worksheet, title: str) -> None:
         "N10": "ROUTE",
     }
     for coordinate, value in headers.items():
+        fill = None if coordinate.startswith("B") else LIGHT_GREY_FILL
         _set_cell(
             ws,
             coordinate,
             value,
             bold=True,
             border=THIN_BORDER,
-            fill=LIGHT_GREY_FILL,
+            fill=fill,
             horizontal="center",
             vertical="bottom",
         )
@@ -512,7 +514,8 @@ def _write_summary_rows(
         hour_records = records.loc[records["hour_band"].eq(hour)]
         warned = hour_records["remarks"].str.strip().str.upper().eq("WARNED")
         charged = hour_records["is_gvw_axle_charge"] | hour_records["is_dimension_charge"]
-        excess_gvw = hour_records["gvw_difference_kg"].clip(lower=0).sum()
+        charged_mask = hour_records["remarks"].str.strip().str.upper().eq("CHARGED")
+        excess_gvw = hour_records.loc[charged_mask, "gvw_difference_kg"].clip(lower=0).sum()
 
         _set_cell(
             ws,
@@ -626,15 +629,21 @@ def _write_manual_header(
     police_officers = _manual_value(session, "police_officers", "police")
     mileage_start = _plain_int(_manual_value(session, "mileage_start"))
     mileage_end = _plain_int(_manual_value(session, "mileage_end"))
+    danka_shifts = [s.strip() for s in str(danka_staff).split(" / ")] if danka_staff else []
+    police_shifts = [s.strip() for s in str(police_officers).split(" / ")] if police_officers else []
+
+    main_danka = danka_shifts[0] if len(danka_shifts) > 0 else danka_staff
+    main_police = police_shifts[0] if len(police_shifts) > 0 else police_officers
 
     _set_detail_center_cell(ws, "B6", report_date, number_format=DATE_FORMAT)
-    _set_detail_text_cell(ws, "E6", _upper(danka_staff))
+    _set_detail_text_cell(ws, "E6", _upper(main_danka))
     _set_detail_text_cell(ws, "E7", "")
-    _set_detail_text_cell(ws, "G6", _upper(police_officers), vertical=None)
+    _set_detail_text_cell(ws, "G6", _upper(main_police), vertical=None)
     _set_detail_text_cell(ws, "G7", "", vertical=None)
     _set_detail_center_cell(ws, "I6", int(summary["total_trucks_weighed"]), border=MEDIUM_BORDER, size=10)
     _set_detail_center_cell(ws, "J6", int(summary["charged_gvw_axle_trucks"]), border=MEDIUM_BORDER, size=10)
-    _set_detail_center_cell(ws, "J7", int(summary["charged_dimensions_trucks"]))
+    charged_dim = int(summary["charged_dimensions_trucks"])
+    _set_detail_center_cell(ws, "J7", charged_dim)
     _set_detail_center_cell(ws, "K6", mileage_start, border=MEDIUM_BORDER)
     _set_detail_center_cell(ws, "L6", mileage_end)
     _set_detail_center_cell(
@@ -677,6 +686,23 @@ def _write_detail_rows(
         gvw_excess = record["gvw_difference_kg"] if record["gvw_difference_kg"] > 0 else "-"
         axle_excess = record["excess_kg"] if record["excess_kg"] > 0 else "-"
 
+        record_dt = record.get("date_time")
+        danka_staff_val = danka_staff
+        police_officers_val = police_officers
+
+        if hasattr(record_dt, "hour"):
+            hour = record_dt.hour
+            if len(danka_shifts) >= 2:
+                if hour < 12:
+                    danka_staff_val = danka_shifts[0]
+                else:
+                    danka_staff_val = danka_shifts[1]
+            if len(police_shifts) >= 2:
+                if hour < 12:
+                    police_officers_val = police_shifts[0]
+                else:
+                    police_officers_val = police_shifts[1]
+
         values = {
             f"B{row}": report_date,
             f"C{row}": _upper(record["registration"]),
@@ -687,8 +713,8 @@ def _write_detail_rows(
             f"H{row}": _upper(record["origin"]),
             f"I{row}": _upper(record["destination"]),
             f"J{row}": _upper(record["cargo"]),
-            f"K{row}": _upper(danka_staff),
-            f"L{row}": _upper(police_officers),
+            f"K{row}": _upper(danka_staff_val),
+            f"L{row}": _upper(police_officers_val),
             f"M{row}": _upper(record["remarks"]),
             f"N{row}": route,
         }

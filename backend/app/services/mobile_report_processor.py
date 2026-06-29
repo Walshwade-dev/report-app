@@ -129,15 +129,15 @@ def _remark(row: pd.Series) -> str:
     if source_remarks:
         return source_remarks
 
-    excess_type = str(row["excess_type"]).strip().lower()
-
-    if row["gvw_difference_kg"] > 0 or excess_type == "gvw":
+    diff = row.get("gvw_difference_kg", 0)
+    if diff > 2000:
         return "CHARGED"
 
-    if row["excess_kg"] > 0 or excess_type:
-        return "WARNED"
+    excess_kg = row.get("excess_kg", 0)
+    if excess_kg <= 0:
+        return "LEGAL"
 
-    return "LEGAL"
+    return "WARNED"
 
 
 def _is_dimension_charge(remarks: str) -> bool:
@@ -147,16 +147,11 @@ def _is_dimension_charge(remarks: str) -> bool:
 
 def _is_gvw_axle_charge(row: pd.Series) -> bool:
     remarks = str(row["remarks"]).strip().lower()
-    excess_type = str(row["excess_type"]).strip().lower()
 
     if _is_dimension_charge(remarks):
         return False
 
-    return (
-        "charged" in remarks
-        or row["gvw_difference_kg"] > 0
-        or excess_type in {"gvw", "axle"}
-    )
+    return "charged" in remarks
 
 
 def _hour_band(hour: int) -> str:

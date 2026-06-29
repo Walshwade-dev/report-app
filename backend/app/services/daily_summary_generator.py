@@ -94,7 +94,7 @@ def add_daily_summary_section(doc: Document, summary: dict):
         "Charged\n&Prohibited\n(Z)",
         "Special\nrelease\n(G)",
         "Vehicles\nCharged\nbut\nRedistributed\n(R)",
-        "Impounded\n& prohibited\n(P)\nZ+R+G",
+        "Impounded\n& prohibited\n(P)\nZ+R",
         "Cases\ncleared\nin\nCourt(\nB)",
         "Transgressions",
         "Exemption permits",

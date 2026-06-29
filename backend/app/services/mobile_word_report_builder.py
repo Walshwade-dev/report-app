@@ -134,6 +134,12 @@ def _add_landscape_section(doc: Document):
     return section
 
 
+def _add_continuous_landscape_section(doc: Document):
+    section = doc.add_section(WD_SECTION.CONTINUOUS)
+    _set_section_landscape(section)
+    return section
+
+
 def _add_initial_landscape_section(doc: Document, report_date, session):
     section = doc.add_section(WD_SECTION.NEW_PAGE)
     _set_section_landscape(section)
@@ -293,7 +299,8 @@ def _hour_values(records: pd.DataFrame, hour: str) -> dict[str, int]:
     rows = _hour_records(records, hour)
     warned = rows["remarks"].str.strip().str.upper().eq("WARNED")
     charged = rows["is_gvw_axle_charge"] | rows["is_dimension_charge"]
-    excess_gvw = rows["gvw_difference_kg"].clip(lower=0).sum()
+    charged_mask = rows["remarks"].str.strip().str.upper().eq("CHARGED")
+    excess_gvw = rows.loc[charged_mask, "gvw_difference_kg"].clip(lower=0).sum()
     return {
         "weighed": int(rows["is_weighed"].sum()),
         "warned": int(warned.sum()),
@@ -570,8 +577,25 @@ def _vehicle_row_values(record, session, report_date) -> list[str]:
     danka_shifts = [s.strip() for s in str(danka_staff).split(" / ")] if danka_staff else []
     police_shifts = [s.strip() for s in str(police_officers).split(" / ")] if police_officers else []
 
+    record_dt = record.get("date_time")
+    danka_staff_val = danka_staff
+    police_officers_val = police_officers
+
+    if hasattr(record_dt, "hour"):
+        hour = record_dt.hour
+        if len(danka_shifts) >= 2:
+            if hour < 12:
+                danka_staff_val = danka_shifts[0]
+            else:
+                danka_staff_val = danka_shifts[1]
+        if len(police_shifts) >= 2:
+            if hour < 12:
+                police_officers_val = police_shifts[0]
+            else:
+                police_officers_val = police_shifts[1]
+
     return [
-        _display_date(report_date),
+        _display_date(report_date, upper=True),
         _upper(record["registration"]),
         _upper(record["transporter"]),
         _upper(record["axle"]),
@@ -580,8 +604,8 @@ def _vehicle_row_values(record, session, report_date) -> list[str]:
         _upper(record["origin"]),
         _upper(record["destination"]),
         _upper(record["cargo"]),
-        _upper(danka_staff),
-        _upper(police_officers),
+        _upper(danka_staff_val),
+        _upper(police_officers_val),
         _upper(record["remarks"]),
     ]
 
@@ -627,7 +651,7 @@ def _add_vehicle_table(
     cell_0_4 = table.cell(0, 4)
     cell_0_5 = table.cell(0, 5)
     cell_0_4.merge(cell_0_5)
-    _set_cell_text(cell_0_4, "EXCESS WEIGHT", size=8, bold=True)
+    _set_cell_text(cell_0_4, "EXCESS   WEIGHT", size=8, bold=True)
 
     # Table 6 (full vehicle list) vs Table 7 (charged >2T) have different header row heights
     if "CHARGED" in heading.upper():
@@ -793,10 +817,11 @@ def build_mobile_word_report(session) -> io.BytesIO:
     _add_initial_landscape_section(doc, report_date, session)
     _add_daily_hourly_data(doc, records, session)
 
-    _add_landscape_section(doc)
+    _add_continuous_landscape_section(doc)
     _add_report_title(doc, session)
     _add_daily_summary(doc, records, session)
 
+    _add_continuous_landscape_section(doc)
     _add_nil_table(
         doc,
         "4.0 TRANSGRESSION",
@@ -831,6 +856,7 @@ def build_mobile_word_report(session) -> io.BytesIO:
         "Next WB Recepient",
     ]
 
+    _add_continuous_landscape_section(doc)
     _add_nil_table(
         doc,
         "I. TRANSGRESSION REPORT",
@@ -838,6 +864,7 @@ def build_mobile_word_report(session) -> io.BytesIO:
         [1044, 949, 949, 1044, 1614, 1424, 1543, 1206, 1276, 1482, 864, 1447],
     )
 
+    _add_continuous_landscape_section(doc)
     _add_nil_table(
         doc,
         "5.0 NUMBER plates removed",
@@ -845,13 +872,14 @@ def build_mobile_word_report(session) -> io.BytesIO:
         [1046, 951, 951, 1046, 1617, 1427, 1546, 1209, 1279, 1485, 866, 1450],
     )
 
-    _add_landscape_section(doc)
+    _add_continuous_landscape_section(doc)
     _add_vehicle_table(doc, "6.0 DETAILS OF VEHICLES", records, session, report_date)
 
     charged_over_two = records.loc[
         (records["gvw_difference_kg"] > 2000)
         & (records["is_gvw_axle_charge"] | records["is_dimension_charge"])
     ].copy()
+    _add_continuous_landscape_section(doc)
     _add_vehicle_table(
         doc,
         "7.0 CHARGED ABOVE 2 TONNES ON GVW",
@@ -860,8 +888,10 @@ def build_mobile_word_report(session) -> io.BytesIO:
         report_date,
     )
 
+    _add_continuous_landscape_section(doc)
     _add_mileage_table(doc, session)
 
+    _add_continuous_landscape_section(doc)
     _add_location_notes(doc, session)
 
     buffer = io.BytesIO()

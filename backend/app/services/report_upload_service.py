@@ -68,7 +68,29 @@ def dataframe_from_upload_bytes(filename: str, content: bytes) -> pd.DataFrame:
     stream = io.BytesIO(content)
 
     if lower_filename.endswith(".csv"):
-        return drop_repeated_header_rows(pd.read_csv(stream))
+        try:
+            df = pd.read_csv(stream)
+        except Exception:
+            import csv
+            stream.seek(0)
+            lines = [line.decode("utf-8", errors="ignore") for line in stream.readlines()]
+            reader = csv.reader(lines)
+            parsed_lines = list(reader)
+            if not parsed_lines:
+                raise ValueError("The uploaded CSV file is empty or corrupt.")
+            max_cols = max(len(row) for row in parsed_lines)
+            header_row = parsed_lines[0]
+            if len(header_row) < max_cols:
+                header_row = header_row + [f"Extra_{i}" for i in range(len(header_row), max_cols)]
+            new_lines = []
+            for row in parsed_lines:
+                if len(row) < max_cols:
+                    row = row + [""] * (max_cols - len(row))
+                elif len(row) > max_cols:
+                    row = row[:max_cols]
+                new_lines.append(row)
+            df = pd.DataFrame(new_lines[1:], columns=header_row)
+        return drop_repeated_header_rows(df)
 
     if lower_filename.endswith(".xlsx"):
         return drop_repeated_header_rows(pd.read_excel(stream))

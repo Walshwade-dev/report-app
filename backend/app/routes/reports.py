@@ -322,6 +322,34 @@ async def get_report_session_summary_cards(report_id: str):
     return build_summary_cards(require_session(report_id))
 
 
+def classify_station(station_name: str | None) -> str | None:
+    if not station_name:
+        return None
+    name = station_name.lower()
+    if "juja" in name:
+        return "Juja"
+    if "kanyonyo" in name:
+        return "Kanyonyo"
+    if "athi" in name:
+        return "Athi River"
+    if "gilgil" in name:
+        return "Gilgil"
+    if "isinya" in name:
+        return "Isinya"
+    if "suswa" in name:
+        return "Suswa"
+    return None
+
+
+def is_bound_a(station_code: str, bound_name: str | None) -> bool:
+    if not bound_name:
+        return True
+    bound = bound_name.lower()
+    if station_code == "Juja":
+        return "thika" in bound or "bound a" in bound or "incoming" in bound
+    return "bound a" in bound or "a" in bound or "incoming" in bound
+
+
 @router.get("/report-sessions/analytics/dashboard")
 async def get_analytics_dashboard():
     sessions = []
@@ -343,10 +371,32 @@ async def get_analytics_dashboard():
     mobile_weighed = 0
     mobile_warned = 0
     mobile_charged = 0
+
+    station_names = {
+        "Juja": "Juja Weighbridge",
+        "Kanyonyo": "Kanyonyo",
+        "Athi River": "Athi River",
+        "Gilgil": "Gilgil",
+        "Isinya": "Isinya",
+        "Suswa": "Suswa"
+    }
+
+    stations_data = {
+        code: {
+            "name": name,
+            "code": code,
+            "traffic": {"boundA": 0, "boundB": 0},
+            "cases": {"boundA": 0, "boundB": 0},
+            "compliance": {
+                "boundA": {"calledIn": 0, "weighed": 0, "compliant": 0},
+                "boundB": {"calledIn": 0, "weighed": 0, "compliant": 0}
+            }
+        } for code, name in station_names.items()
+    }
     
     for s in sessions:
         if s.sections.get("mobile_report", {}).get("status") == "ready":
-            summary = s.sections["mobile_report"].get("extra", {}).get("summary", {})
+            summary = s.sections["mobile_report"].get("summary", {})
             mobile_weighed += summary.get("total_trucks_weighed", 0)
             mobile_warned += summary.get("warned_trucks", 0)
             mobile_charged += summary.get("charged_trucks", 0)
@@ -357,12 +407,27 @@ async def get_analytics_dashboard():
             g = daily_hour_total_column(s, "G") or 0
             z = daily_hour_total_column(s, "Z") or 0
             r = daily_hour_total_column(s, "R") or 0
+            called = daily_hour_total_column(s, "C") or 0
+            cases = s.manual_inputs.get("cases_cleared_in_court", 0) or 0
+
             x_total += x
             y_total += y
             g_total += g
             z_total += z
             r_total += r
             wideloads += get_wideload_count_from_session(s) or 0
+
+            code = classify_station(s.station or s.weighbridge_name)
+            if code and code in stations_data:
+                bound_key = "boundA" if is_bound_a(code, s.bound) else "boundB"
+                overload_no_permit = max(y - g, 0)
+                compliant = max(called - overload_no_permit, 0)
+
+                stations_data[code]["traffic"][bound_key] += x
+                stations_data[code]["cases"][bound_key] += cases
+                stations_data[code]["compliance"][bound_key]["calledIn"] += called
+                stations_data[code]["compliance"][bound_key]["weighed"] += x
+                stations_data[code]["compliance"][bound_key]["compliant"] += compliant
 
     return {
         "static": {
@@ -376,8 +441,141 @@ async def get_analytics_dashboard():
             "weighed": mobile_weighed,
             "warned": mobile_warned,
             "charged": mobile_charged,
-        }
+        },
+        "stations": list(stations_data.values())
     }
+
+
+@router.get("/report-sessions/analytics/details")
+async def get_analytics_details():
+    sessions = []
+    for metadata_path in sorted(report_session_store.sessions_dir.glob("*.json")):
+        try:
+            session = report_session_store.get(metadata_path.stem)
+            if session:
+                sessions.append(session)
+        except Exception:
+            pass
+
+    juja_sessions = [s for s in sessions if s.station and "juja" in s.station.lower()]
+    
+    juja_thika_traffic = 0
+    juja_nairobi_traffic = 0
+    juja_thika_cases = 0
+    juja_nairobi_cases = 0
+    juja_total_called = 0
+    juja_total_compliant = 0
+    juja_overloads_intercepted = 0
+    
+    for s in juja_sessions:
+        is_thika = is_bound_a("Juja", s.bound)
+        
+        weighed = daily_hour_total_column(s, "X") or 0
+        if is_thika:
+            juja_thika_traffic += weighed
+        else:
+            juja_nairobi_traffic += weighed
+            
+        cases = s.manual_inputs.get("cases_cleared_in_court", 0) or 0
+        if is_thika:
+            juja_thika_cases += cases
+        else:
+            juja_nairobi_cases += cases
+            
+        called = daily_hour_total_column(s, "C") or 0
+        y = daily_hour_total_column(s, "Y") or 0
+        g = daily_hour_total_column(s, "G") or 0
+        overload_no_permit = max(y - g, 0)
+        compliant = max(called - overload_no_permit, 0)
+        
+        juja_total_called += called
+        juja_total_compliant += compliant
+        juja_overloads_intercepted += overload_no_permit
+
+    juja_total_traffic = juja_thika_traffic + juja_nairobi_traffic
+    juja_total_cases = juja_thika_cases + juja_nairobi_cases
+    juja_compliance_rate = (juja_total_compliant / juja_total_called * 100) if juja_total_called > 0 else 0.0
+
+    # Daily breakdown for Juja
+    daily_traffic = {}
+    daily_cases = {}
+    
+    for s in juja_sessions:
+        try:
+            day_str = s.report_date.split("-")[2]  # DD
+        except Exception:
+            continue
+            
+        is_thika = is_bound_a("Juja", s.bound)
+        weighed = daily_hour_total_column(s, "X") or 0
+        cases = s.manual_inputs.get("cases_cleared_in_court", 0) or 0
+        
+        if day_str not in daily_traffic:
+            daily_traffic[day_str] = {"thikaBound": 0, "nairobiBound": 0}
+        if day_str not in daily_cases:
+            daily_cases[day_str] = {"thikaBound": 0, "nairobiBound": 0}
+            
+        if is_thika:
+            daily_traffic[day_str]["thikaBound"] += weighed
+            daily_cases[day_str]["thikaBound"] += cases
+        else:
+            daily_traffic[day_str]["nairobiBound"] += weighed
+            daily_cases[day_str]["nairobiBound"] += cases
+
+    traffic_data = []
+    for day in sorted(daily_traffic.keys()):
+        traffic_data.append({
+            "day": day,
+            "thikaBound": daily_traffic[day]["thikaBound"],
+            "nairobiBound": daily_traffic[day]["nairobiBound"]
+        })
+        
+    court_cases_data = []
+    for day in sorted(daily_cases.keys()):
+        court_cases_data.append({
+            "day": day,
+            "thikaBound": daily_cases[day]["thikaBound"],
+            "nairobiBound": daily_cases[day]["nairobiBound"]
+        })
+
+    station_names = {
+        "Juja": "Juja Weighbridge",
+        "Kanyonyo": "Kanyonyo",
+        "Athi River": "Athi River",
+        "Gilgil": "Gilgil",
+        "Isinya": "Isinya",
+        "Suswa": "Suswa"
+    }
+    cross_station = {code: 0 for code in station_names}
+    for s in sessions:
+        code = classify_station(s.station or s.weighbridge_name)
+        if code in cross_station:
+            cross_station[code] += s.manual_inputs.get("cases_cleared_in_court", 0) or 0
+
+    cross_station_data = []
+    for code, name in station_names.items():
+        cross_station_data.append({
+            "name": name,
+            "cases": cross_station[code],
+            "active": code == "Juja"
+        })
+
+    return {
+        "kpis": {
+            "totalTraffic": juja_total_traffic,
+            "thikaTraffic": juja_thika_traffic,
+            "nairobiTraffic": juja_nairobi_traffic,
+            "totalCourtCases": juja_total_cases,
+            "thikaCourtCases": juja_thika_cases,
+            "nairobiCourtCases": juja_nairobi_cases,
+            "complianceRate": round(juja_compliance_rate, 1),
+            "overloadsIntercepted": juja_overloads_intercepted
+        },
+        "trafficData": traffic_data,
+        "courtCasesData": court_cases_data,
+        "crossStationData": cross_station_data
+    }
+
 
 
 @router.patch("/report-sessions/{report_id}/metadata")
@@ -823,7 +1021,7 @@ async def download_report_session_mobile_excel_report(report_id: str):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    filename = get_mobile_report_filename(session, "xls")
+    filename = get_mobile_report_filename(session, "xlsx")
 
     return Response(
         content=file_stream.getvalue(),
@@ -854,3 +1052,129 @@ async def download_report_session_mobile_word_report(report_id: str):
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+@router.get("/report-sessions/sms-summaries/dates")
+async def get_sms_summary_dates():
+    dates = set()
+    for metadata_path in report_session_store.sessions_dir.glob("*.json"):
+        try:
+            session = report_session_store.get(metadata_path.stem)
+            if session and session.report_date:
+                dates.add(session.report_date)
+        except Exception:
+            pass
+    return sorted(list(dates), reverse=True)
+
+
+@router.get("/report-sessions/sms-summaries/{report_date}")
+async def get_sms_summaries_by_date(report_date: str):
+    sessions_on_date = []
+    for metadata_path in report_session_store.sessions_dir.glob("*.json"):
+        try:
+            session = report_session_store.get(metadata_path.stem)
+            if session and session.report_date == report_date:
+                sessions_on_date.append(session)
+        except Exception:
+            pass
+
+    static_a = None
+    static_b = None
+    mobile_1 = None
+    mobile_2 = None
+
+    for s in sessions_on_date:
+        bound_lower = (s.bound or "").lower()
+        station_lower = (s.station or s.weighbridge_name or "").lower()
+        is_mobile = "mobile" in bound_lower or "mobile" in station_lower or "mobile_report" in s.sections
+        
+        if is_mobile:
+            if "2" in bound_lower or "two" in bound_lower:
+                mobile_2 = s
+            else:
+                mobile_1 = s
+        else:
+            station_code = classify_station(s.station or s.weighbridge_name)
+            if is_bound_a(station_code, s.bound):
+                static_a = s
+            else:
+                static_b = s
+
+    try:
+        date_formatted = datetime.strptime(report_date, "%Y-%m-%d").strftime("%d.%m.%Y")
+    except Exception:
+        date_formatted = report_date
+
+    from app.services.sms_summary_builder import build_static_sms_summary, build_mobile_sms_summary
+
+    response = []
+
+    if static_a:
+        response.append({
+            "slot": "static_bound_a",
+            "title": f"Static: {static_a.weighbridge_name or 'JUJA'} - {static_a.bound or 'Thika Bound'}",
+            "exists": True,
+            "report_id": static_a.report_id,
+            "text": build_static_sms_summary(static_a)
+        })
+    else:
+        response.append({
+            "slot": "static_bound_a",
+            "title": "Static: JUJA - THIKA BOUND",
+            "exists": False,
+            "report_id": None,
+            "text": f"DAILY REPORT\nJUJA THIKA BOUND WB\nDate: {date_formatted}\n\n[Awaiting report upload and processing]"
+        })
+
+    if static_b:
+        response.append({
+            "slot": "static_bound_b",
+            "title": f"Static: {static_b.weighbridge_name or 'JUJA'} - {static_b.bound or 'Nairobi Bound'}",
+            "exists": True,
+            "report_id": static_b.report_id,
+            "text": build_static_sms_summary(static_b)
+        })
+    else:
+        response.append({
+            "slot": "static_bound_b",
+            "title": "Static: JUJA - NAIROBI BOUND",
+            "exists": False,
+            "report_id": None,
+            "text": f"DAILY REPORT\nJUJA NAIROBI BOUND WB\nDate: {date_formatted}\n\n[Awaiting report upload and processing]"
+        })
+
+    if mobile_1:
+        response.append({
+            "slot": "mobile_1",
+            "title": f"Mobile: {mobile_1.station or 'JUJA'} - TEAM ONE",
+            "exists": True,
+            "report_id": mobile_1.report_id,
+            "text": build_mobile_sms_summary(mobile_1)
+        })
+    else:
+        response.append({
+            "slot": "mobile_1",
+            "title": "Mobile: JUJA - TEAM ONE",
+            "exists": False,
+            "report_id": None,
+            "text": f"DAILY REPORT\nJUJA W/B DAILY MOBILE REPORT_TEAM ONE\nDate: {date_formatted}\n\n[Awaiting report upload and processing]"
+        })
+
+    if mobile_2:
+        response.append({
+            "slot": "mobile_2",
+            "title": f"Mobile: {mobile_2.station or 'JUJA'} - TEAM TWO",
+            "exists": True,
+            "report_id": mobile_2.report_id,
+            "text": build_mobile_sms_summary(mobile_2)
+        })
+    else:
+        response.append({
+            "slot": "mobile_2",
+            "title": "Mobile: JUJA - TEAM TWO",
+            "exists": False,
+            "report_id": None,
+            "text": f"DAILY REPORT\nJUJA W/B DAILY MOBILE REPORT_TEAM TWO\nDate: {date_formatted}\n\n[Awaiting report upload and processing]"
+        })
+
+    return response

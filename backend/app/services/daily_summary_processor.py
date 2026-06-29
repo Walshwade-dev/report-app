@@ -21,7 +21,7 @@ SUMMARY_FIELDS = [
     ("charged_prohibited_z", "Charged & Prohibited (Z)"),
     ("special_release_g", "Special release (G)"),
     ("vehicles_charged_but_redistributed_r", "Vehicles Charged but Redistributed (R)"),
-    ("impounded_prohibited_p", "Impounded & prohibited (P)=Z+R+G"),
+    ("impounded_prohibited_p", "Impounded & prohibited (P)=Z+R"),
     ("cases_cleared_in_court_b", "Cases cleared in Court (B)"),
     ("transgressions_l", "Transgressions (L)"),
     ("exemption_permits_not_weighed_e", "Exemption permits Not weighed (E)"),
@@ -146,7 +146,7 @@ def build_daily_summary(
     k = traffic["total_traffic_census"]
     t = q + x + k + e
     y = a + z + g + r
-    p = z + r + g
+    p = z + r
     b = _manual_count(manual_inputs, "cases_cleared_in_court", "cases_cleared_court")
     l = _transgressions_count(manual_inputs)
     f = _normalize_non_negative_count(

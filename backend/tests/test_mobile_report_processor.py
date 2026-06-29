@@ -110,3 +110,16 @@ def test_mobile_report_detects_dimension_charged_remarks():
     assert bool(records.iloc[0]["is_gvw_axle_charge"]) is False
     assert payload["summary"]["charged_dimensions_trucks"] == 1
     assert payload["summary"]["charged_gvw_axle_trucks"] == 0
+
+
+def test_upload_handles_csv_with_varying_column_counts():
+    csv_content = (
+        b"col1,col2,col3\n"
+        b"col1,col2,col3\n"
+        b"val1,val2,val3,val4\n"
+    )
+    df = dataframe_from_upload_bytes("test.csv", csv_content)
+    assert len(df) == 1
+    assert df.columns.tolist() == ["col1", "col2", "col3", "Extra_3"]
+    assert df.iloc[0]["Extra_3"] == "val4"
+

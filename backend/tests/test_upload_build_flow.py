@@ -366,7 +366,7 @@ def test_mobile_report_downloads_mapped_word_document(client):
     assert len(document.tables) == 9
 
     assert any(
-        paragraph.text == "DAILY AND HOURLY STATISTICS"
+        paragraph.text == "1.0 DAILY AND HOURLY STATISTICS"
         for paragraph in document.paragraphs
     )
     assert any(
@@ -389,6 +389,8 @@ def test_mobile_report_downloads_mapped_word_document(client):
     assert daily_stats.cell(26, 1).text == "Total"
 
     hourly_data = document.tables[1]
+    if len(hourly_data.rows) == 1 and len(hourly_data.columns) == 2:
+        hourly_data = hourly_data.cell(0, 0).tables[0]
     assert len(hourly_data.rows) == 26
     assert len(hourly_data.columns) == 3
     assert hourly_data.cell(0, 1).text == "WEIGHED"
@@ -404,7 +406,7 @@ def test_mobile_report_downloads_mapped_word_document(client):
     assert details.cell(0, 0).text == "DATE WEIGHED"
     assert details.cell(0, 4).text == "EXCESS   WEIGHT"
     assert details.cell(1, 4).text == "GVW"
-    assert details.cell(2, 0).text == "12-May-26"
+    assert details.cell(2, 0).text == "12-MAY-26"
     assert details.cell(2, 1).text == "KBW781J"
     assert details.cell(2, 2).text == "OMAR HALEN."
     assert details.cell(2, 4).text == "7,500"
