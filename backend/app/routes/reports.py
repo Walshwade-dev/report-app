@@ -1083,13 +1083,24 @@ async def get_sms_summary_dates():
 
 
 @router.get("/report-sessions/sms-summaries/{report_date}")
-async def get_sms_summaries_by_date(report_date: str):
+async def get_sms_summaries_by_date(report_date: str, station: str | None = None):
+    station_val = station or "Juja"
     sessions_on_date = []
     for metadata_path in report_session_store.sessions_dir.glob("*.json"):
         try:
             session = report_session_store.get(metadata_path.stem)
             if session and session.report_date == report_date:
-                sessions_on_date.append(session)
+                session_station = classify_station(session.station or session.weighbridge_name)
+                matched = False
+                if session_station and station_val.lower() == session_station.lower():
+                    matched = True
+                elif station_val.lower() in (session.station or "").lower():
+                    matched = True
+                elif station_val.lower() in (session.weighbridge_name or "").lower():
+                    matched = True
+                
+                if matched:
+                    sessions_on_date.append(session)
         except Exception:
             pass
 
@@ -1122,12 +1133,34 @@ async def get_sms_summaries_by_date(report_date: str):
 
     from app.services.sms_summary_builder import build_static_sms_summary, build_mobile_sms_summary
 
+    station_upper = station_val.strip().upper()
+    
+    # Determine default bound names based on station
+    bound_a_name = "THIKA BOUND"
+    bound_b_name = "NAIROBI BOUND"
+    
+    if "ATHI" in station_upper:
+        bound_a_name = "MOMBASA BOUND"
+        bound_b_name = "NAIROBI BOUND"
+    elif "GILGIL" in station_upper:
+        bound_a_name = "NAIROBI BOUND"
+        bound_b_name = "NAKURU BOUND"
+    elif "KANYONYO" in station_upper:
+        bound_a_name = "MWINGI BOUND"
+        bound_b_name = "THIKA BOUND"
+    elif "ISINYA" in station_upper:
+        bound_a_name = "KAJIADO BOUND"
+        bound_b_name = "NAIROBI BOUND"
+    elif "SUSWA" in station_upper:
+        bound_a_name = "NAROK BOUND"
+        bound_b_name = "NAIROBI BOUND"
+
     response = []
 
     if static_a:
         response.append({
             "slot": "static_bound_a",
-            "title": f"Static: {static_a.weighbridge_name or 'JUJA'} - {static_a.bound or 'Thika Bound'}",
+            "title": f"Static: {static_a.weighbridge_name or station_upper} - {static_a.bound or bound_a_name}",
             "exists": True,
             "report_id": static_a.report_id,
             "text": build_static_sms_summary(static_a)
@@ -1135,16 +1168,16 @@ async def get_sms_summaries_by_date(report_date: str):
     else:
         response.append({
             "slot": "static_bound_a",
-            "title": "Static: JUJA - THIKA BOUND",
+            "title": f"Static: {station_upper} - {bound_a_name}",
             "exists": False,
             "report_id": None,
-            "text": f"DAILY REPORT\nJUJA THIKA BOUND WB\nDate: {date_formatted}\n\n[Awaiting report upload and processing]"
+            "text": f"DAILY REPORT\n{station_upper} {bound_a_name} WB\nDate: {date_formatted}\n\n[Awaiting report upload and processing]"
         })
 
     if static_b:
         response.append({
             "slot": "static_bound_b",
-            "title": f"Static: {static_b.weighbridge_name or 'JUJA'} - {static_b.bound or 'Nairobi Bound'}",
+            "title": f"Static: {static_b.weighbridge_name or station_upper} - {static_b.bound or bound_b_name}",
             "exists": True,
             "report_id": static_b.report_id,
             "text": build_static_sms_summary(static_b)
@@ -1152,16 +1185,16 @@ async def get_sms_summaries_by_date(report_date: str):
     else:
         response.append({
             "slot": "static_bound_b",
-            "title": "Static: JUJA - NAIROBI BOUND",
+            "title": f"Static: {station_upper} - {bound_b_name}",
             "exists": False,
             "report_id": None,
-            "text": f"DAILY REPORT\nJUJA NAIROBI BOUND WB\nDate: {date_formatted}\n\n[Awaiting report upload and processing]"
+            "text": f"DAILY REPORT\n{station_upper} {bound_b_name} WB\nDate: {date_formatted}\n\n[Awaiting report upload and processing]"
         })
 
     if mobile_1:
         response.append({
             "slot": "mobile_1",
-            "title": f"Mobile: {mobile_1.station or 'JUJA'} - TEAM ONE",
+            "title": f"Mobile: {mobile_1.station or station_upper} - TEAM ONE",
             "exists": True,
             "report_id": mobile_1.report_id,
             "text": build_mobile_sms_summary(mobile_1)
@@ -1169,16 +1202,16 @@ async def get_sms_summaries_by_date(report_date: str):
     else:
         response.append({
             "slot": "mobile_1",
-            "title": "Mobile: JUJA - TEAM ONE",
+            "title": f"Mobile: {station_upper} - TEAM ONE",
             "exists": False,
             "report_id": None,
-            "text": f"DAILY REPORT\nJUJA W/B DAILY MOBILE REPORT_TEAM ONE\nDate: {date_formatted}\n\n[Awaiting report upload and processing]"
+            "text": f"DAILY REPORT\n{station_upper} W/B DAILY MOBILE REPORT_TEAM ONE\nDate: {date_formatted}\n\n[Awaiting report upload and processing]"
         })
 
     if mobile_2:
         response.append({
             "slot": "mobile_2",
-            "title": f"Mobile: {mobile_2.station or 'JUJA'} - TEAM TWO",
+            "title": f"Mobile: {mobile_2.station or station_upper} - TEAM TWO",
             "exists": True,
             "report_id": mobile_2.report_id,
             "text": build_mobile_sms_summary(mobile_2)
@@ -1186,10 +1219,10 @@ async def get_sms_summaries_by_date(report_date: str):
     else:
         response.append({
             "slot": "mobile_2",
-            "title": "Mobile: JUJA - TEAM TWO",
+            "title": f"Mobile: {station_upper} - TEAM TWO",
             "exists": False,
             "report_id": None,
-            "text": f"DAILY REPORT\nJUJA W/B DAILY MOBILE REPORT_TEAM TWO\nDate: {date_formatted}\n\n[Awaiting report upload and processing]"
+            "text": f"DAILY REPORT\n{station_upper} W/B DAILY MOBILE REPORT_TEAM TWO\nDate: {date_formatted}\n\n[Awaiting report upload and processing]"
         })
 
     return response
