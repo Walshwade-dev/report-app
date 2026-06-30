@@ -733,12 +733,12 @@ def _add_daily_hour_chart(ws: Worksheet) -> None:
         series.graphicalProperties.line.solidFill = color
         series.graphicalProperties.line.width = 38100  # Bolder line width (3.0pt instead of 2.25pt/28575)
 
-    chart.x = 19.49
-    chart.y = 12.57
-    chart.width = 16.79
-    chart.height = 13.335
-    chart.anchor = "T32"
-    ws.add_chart(chart, "T32")
+    chart.roundedCorners = False
+    chart.x_axis.title = "Time"
+    chart.width = 16.0
+    chart.height = 9.5
+    chart.anchor = "T31"
+    ws.add_chart(chart, "T31")
 
 
 def _write_reference_markers(ws: Worksheet) -> None:
