@@ -218,6 +218,7 @@ def _set_row_height(row, inches: float) -> None:
 def _style_cell(
     cell,
     *,
+    font_name: str = FONT_NAME,
     size: float = 8,
     bold: bool = False,
     align=WD_ALIGN_PARAGRAPH.CENTER,
@@ -229,7 +230,7 @@ def _style_cell(
         paragraph.paragraph_format.space_before = Pt(0)
         paragraph.paragraph_format.space_after = Pt(0)
         for run in paragraph.runs:
-            run.font.name = FONT_NAME
+            run.font.name = font_name
             run.font.size = Pt(size)
             run.bold = bold
             r_pr = run._element.get_or_add_rPr()
@@ -237,24 +238,25 @@ def _style_cell(
             if r_fonts is None:
                 r_fonts = OxmlElement("w:rFonts")
                 r_pr.append(r_fonts)
-            r_fonts.set(qn("w:ascii"), FONT_NAME)
-            r_fonts.set(qn("w:hAnsi"), FONT_NAME)
+            r_fonts.set(qn("w:ascii"), font_name)
+            r_fonts.set(qn("w:hAnsi"), font_name)
 
 
 def _set_cell_text(
     cell,
     text: Any,
     *,
+    font_name: str = FONT_NAME,
     size: float = 8,
     bold: bool = False,
     align=WD_ALIGN_PARAGRAPH.CENTER,
     valign=WD_CELL_VERTICAL_ALIGNMENT.CENTER,
 ) -> None:
     cell.text = "" if text is None else str(text)
-    _style_cell(cell, size=size, bold=bold, align=align, valign=valign)
+    _style_cell(cell, font_name=font_name, size=size, bold=bold, align=align, valign=valign)
 
 
-def _add_heading(doc: Document, text: str, *, size: float = 11, underline: bool = True) -> None:
+def _add_heading(doc: Document, text: str, *, size: float = 12, underline: bool = True) -> None:
     paragraph = doc.add_paragraph()
     paragraph.paragraph_format.space_before = Pt(0)
     paragraph.paragraph_format.space_after = Pt(6)
@@ -262,7 +264,7 @@ def _add_heading(doc: Document, text: str, *, size: float = 11, underline: bool 
     run.bold = True
     if underline:
         run.underline = True
-    run.font.name = FONT_NAME
+    run.font.name = "Arial"
     run.font.size = Pt(size)
 
 
@@ -336,7 +338,7 @@ def _create_mobile_hourly_chart(records: pd.DataFrame) -> io.BytesIO:
     weighed = [_hour_values(records, hour)["weighed"] for hour in HOURS]
     charged = [_hour_values(records, hour)["charged"] for hour in HOURS]
     max_value = max([*weighed, *charged, 1])
-    upper = max(6, max_value + 1)
+    upper = max(15, ((max_value + 4) // 5) * 5)
 
     buffer = io.BytesIO()
     fig = plt.figure(figsize=(6.3, 4.1), dpi=150)
@@ -348,8 +350,9 @@ def _create_mobile_hourly_chart(records: pd.DataFrame) -> io.BytesIO:
     ax.plot(HOURS, weighed, label="WEIGHED", color=DARK_BLUE_LINE, linewidth=2.2)
     ax.plot(HOURS, charged, label="CHARGED & PROHIBITED", color=MAROON_LINE, linewidth=2.2)
     ax.set_title("DAILY HOURLY DATA", fontsize=13, fontweight="bold", color="#595959")
+    ax.set_xlabel("charged not charged & prohibited", fontsize=8, color="#595959")
     ax.set_ylim(0, upper)
-    ax.set_yticks(range(0, upper + 1))
+    ax.set_yticks(range(0, upper + 1, 5))
     ax.grid(axis="y", color="#D9D9D9", linewidth=0.8)
     ax.grid(axis="x", visible=False)
     ax.tick_params(axis="x", labelrotation=48, labelsize=6, colors="#595959")
@@ -374,7 +377,7 @@ def _create_mobile_hourly_chart(records: pd.DataFrame) -> io.BytesIO:
 
 
 def _add_daily_hour_statistics(doc: Document, records: pd.DataFrame, report_date) -> None:
-    _add_heading(doc, "1.0 DAILY AND HOURLY STATISTICS", size=11, underline=False)
+    _add_heading(doc, "1.0 DAILY AND HOURLY STATISTICS", size=12, underline=False)
     table = doc.add_table(rows=27, cols=6)
     table.autofit = False
     table.allow_autofit = False
@@ -426,7 +429,7 @@ def _add_daily_hour_statistics(doc: Document, records: pd.DataFrame, report_date
             _format_plain_number(values["excess_gvw"]),
         ]
         for col, value in enumerate(row_values):
-            _set_cell_text(table.cell(index, col), value, size=11)
+            _set_cell_text(table.cell(index, col), value, font_name="Calibri", size=11)
             _set_cell_width(table.cell(index, col), widths[col])
 
     total_row = table.rows[26]
@@ -438,7 +441,7 @@ def _add_daily_hour_statistics(doc: Document, records: pd.DataFrame, report_date
         totals["charged"],
         _format_plain_number(totals["excess_gvw"]),
     ]):
-        _set_cell_text(total_row.cells[col], value, size=11, bold=True)
+        _set_cell_text(total_row.cells[col], value, font_name="Calibri", size=11, bold=True)
         _set_cell_width(total_row.cells[col], widths[col])
 
 
@@ -451,7 +454,7 @@ def _add_prepared_approved(doc: Document, session) -> None:
 
 def _add_daily_hourly_data(doc: Document, records: pd.DataFrame, session) -> None:
     _add_report_title(doc, session)
-    _add_heading(doc, "2.0 DAILY HOURLY DATA", size=11)
+    _add_heading(doc, "2.0 DAILY HOURLY DATA", size=12)
     
     # Borderless layout table
     layout_table = doc.add_table(rows=1, cols=2)
@@ -488,11 +491,11 @@ def _add_daily_hourly_data(doc: Document, records: pd.DataFrame, session) -> Non
         totals["weighed"] += values["weighed"]
         totals["charged"] += values["charged"]
         for col, value in enumerate([hour, values["weighed"], values["charged"]]):
-            _set_cell_text(table.cell(index, col), value, size=11, align=WD_ALIGN_PARAGRAPH.LEFT)
+            _set_cell_text(table.cell(index, col), value, font_name="Calibri", size=11, align=WD_ALIGN_PARAGRAPH.LEFT)
             _set_cell_width(table.cell(index, col), widths[col])
 
     for col, value in enumerate(["Total", totals["weighed"], totals["charged"]]):
-        _set_cell_text(table.cell(25, col), value, size=11, bold=True, align=WD_ALIGN_PARAGRAPH.LEFT)
+        _set_cell_text(table.cell(25, col), value, font_name="Calibri", size=11, bold=True, align=WD_ALIGN_PARAGRAPH.LEFT)
         _set_cell_width(table.cell(25, col), widths[col])
 
     # Right Cell: Chart
@@ -538,7 +541,7 @@ def _add_daily_summary(doc: Document, records: pd.DataFrame, session) -> None:
     for col, header in enumerate(headers):
         _set_cell_text(table.cell(0, col), header, size=11, bold=True)
         _set_cell_width(table.cell(0, col), widths[col])
-        _set_cell_text(table.cell(1, col), body[col], size=11)
+        _set_cell_text(table.cell(1, col), body[col], font_name="Calibri", size=11)
         _set_cell_width(table.cell(1, col), widths[col])
 
 
@@ -564,7 +567,7 @@ def _add_nil_table(doc: Document, heading: str, headers: list[str], widths: list
     for col, header in enumerate(headers):
         _set_cell_text(table.cell(0, col), header, size=11, bold=True)
         _set_cell_width(table.cell(0, col), widths[col])
-        _set_cell_text(table.cell(1, col), "NIL" if col == 0 else "", size=11)
+        _set_cell_text(table.cell(1, col), "NIL" if col == 0 else "", font_name="Calibri", size=11)
         _set_cell_width(table.cell(1, col), widths[col])
 
 
@@ -663,14 +666,14 @@ def _add_vehicle_table(
 
     if records.empty:
         for col in range(12):
-            _set_cell_text(table.cell(2, col), "NIL" if col == 0 else "", size=11)
+            _set_cell_text(table.cell(2, col), "NIL" if col == 0 else "", font_name="Calibri", size=11)
             _set_cell_width(table.cell(2, col), VEHICLE_TABLE_WIDTHS[col])
     else:
         for row_index, (_, record) in enumerate(records.iterrows(), start=2):
             row_values = _vehicle_row_values(record, session, report_date)
             for col, value in enumerate(row_values):
                 align = WD_ALIGN_PARAGRAPH.RIGHT if col in (4, 5) else WD_ALIGN_PARAGRAPH.LEFT
-                _set_cell_text(table.cell(row_index, col), value, size=11, align=align)
+                _set_cell_text(table.cell(row_index, col), value, font_name="Calibri", size=11, align=align)
                 _set_cell_width(table.cell(row_index, col), VEHICLE_TABLE_WIDTHS[col])
 
 
@@ -707,13 +710,13 @@ def _add_mileage_table(doc: Document, session) -> None:
     for col, header in enumerate(headers):
         _set_cell_text(table.cell(0, col), header.upper(), size=11, bold=True, valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM)
         _set_cell_width(table.cell(0, col), widths[col])
-        _set_cell_text(table.cell(1, col), values[col], size=11, valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM)
+        _set_cell_text(table.cell(1, col), values[col], font_name="Calibri", size=11, valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM)
         _set_cell_width(table.cell(1, col), widths[col])
 
     for col in range(4):
-        _set_cell_text(table.cell(2, col), "", size=11, valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM)
+        _set_cell_text(table.cell(2, col), "", font_name="Calibri", size=11, valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM)
         _set_cell_width(table.cell(2, col), widths[col])
-    _set_cell_text(table.cell(3, 2), f"{kms} KMS" if kms else "", size=11, bold=True, valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM)
+    _set_cell_text(table.cell(3, 2), f"{kms} KMS" if kms else "", font_name="Calibri", size=11, bold=True, valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM)
 
 
 def _add_location_notes(doc: Document, session) -> None:
@@ -743,6 +746,46 @@ def _add_location_notes(doc: Document, session) -> None:
         _add_mixed_line(doc, "POLICE OFFICERS:        ", ".")
 
 
+def _style_footer_run(run) -> None:
+    run.bold = True
+    run.font.name = "Calibri"
+    run.font.size = Pt(10)
+    r_pr = run._element.get_or_add_rPr()
+    r_fonts = r_pr.rFonts
+    if r_fonts is None:
+        r_fonts = OxmlElement("w:rFonts")
+        r_pr.append(r_fonts)
+    r_fonts.set(qn("w:ascii"), "Calibri")
+    r_fonts.set(qn("w:hAnsi"), "Calibri")
+
+
+def _add_footer_field(paragraph, field_name) -> None:
+    run = paragraph.add_run()
+    _style_footer_run(run)
+
+    field_begin = OxmlElement("w:fldChar")
+    field_begin.set(qn("w:fldCharType"), "begin")
+
+    instruction = OxmlElement("w:instrText")
+    instruction.set(qn("xml:space"), "preserve")
+    instruction.text = f" {field_name} "
+
+    field_separate = OxmlElement("w:fldChar")
+    field_separate.set(qn("w:fldCharType"), "separate")
+
+    field_text = OxmlElement("w:t")
+    field_text.text = "1"
+
+    field_end = OxmlElement("w:fldChar")
+    field_end.set(qn("w:fldCharType"), "end")
+
+    run._r.append(field_begin)
+    run._r.append(instruction)
+    run._r.append(field_separate)
+    run._r.append(field_text)
+    run._r.append(field_end)
+
+
 def _add_mobile_footer(section, report_date, session) -> None:
     footer = section.footer
     paragraph = footer.paragraphs[0]
@@ -761,12 +804,12 @@ def _add_mobile_footer(section, report_date, session) -> None:
 
     prefix = f"KeNHA/WB/MTCE/43339/2025\t\t{station} MOBILE REPORT 1  {date_str}   \t\tPage "
     run_prefix = paragraph.add_run(prefix)
-    style_footer_run(run_prefix)
+    _style_footer_run(run_prefix)
 
-    add_field(paragraph, "PAGE")
+    _add_footer_field(paragraph, "PAGE")
     run_end = paragraph.add_run(" of ")
-    style_footer_run(run_end)
-    add_field(paragraph, "NUMPAGES")
+    _style_footer_run(run_end)
+    _add_footer_field(paragraph, "NUMPAGES")
 
 
 def _add_report_title(doc: Document, session) -> None:
@@ -781,8 +824,8 @@ def _add_report_title(doc: Document, session) -> None:
     run = paragraph.add_run(f"{station} MOBILE DAILY REPORT 1")
     run.bold = True
     run.underline = True
-    run.font.name = FONT_NAME
-    run.font.size = Pt(11)
+    run.font.name = "Times New Roman"
+    run.font.size = Pt(12)
 
 
 def build_mobile_word_report(session) -> io.BytesIO:

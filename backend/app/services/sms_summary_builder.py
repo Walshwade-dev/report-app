@@ -112,7 +112,7 @@ def build_static_sms_summary(session: ReportSession) -> str:
         f"Special Release(G)={format_num(G)}\n"
         f"Redistributed(R)={format_num(R)}\n"
         f"Impounded & prohibited(P)={format_num(P)}\n"
-        f"Transgression(L)={format_num(L)}\n"
+        f"Transgression(L)= {format_num(L)}\n"
         f"Exemption P not weighed(E)={format_num(E)}\n"
         f"Exemption P weighed (F)={format_num(F)}\n\n"
         f"By: {prepared_by}"
