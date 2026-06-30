@@ -341,13 +341,28 @@ def classify_station(station_name: str | None) -> str | None:
     return None
 
 
-def is_bound_a(station_code: str, bound_name: str | None) -> bool:
+def is_bound_a(station_code: str | None, bound_name: str | None) -> bool:
     if not bound_name:
         return True
     bound = bound_name.lower()
-    if station_code == "Juja":
+    if not station_code:
+        return "bound a" in bound or "incoming" in bound or "thika" in bound or "mombasa" in bound or "mwingi" in bound or "kajiado" in bound or "narok" in bound
+    
+    station_lower = station_code.lower()
+    if "juja" in station_lower:
         return "thika" in bound or "bound a" in bound or "incoming" in bound
-    return "bound a" in bound or "a" in bound or "incoming" in bound
+    elif "athi" in station_lower:
+        return "mombasa" in bound or "bound a" in bound or "incoming" in bound
+    elif "gilgil" in station_lower:
+        return "nairobi" in bound or "bound a" in bound or "incoming" in bound
+    elif "kanyonyo" in station_lower:
+        return "mwingi" in bound or "bound a" in bound or "incoming" in bound
+    elif "isinya" in station_lower:
+        return "kajiado" in bound or "bound a" in bound or "incoming" in bound
+    elif "suswa" in station_lower:
+        return "narok" in bound or "bound a" in bound or "incoming" in bound
+
+    return "bound a" in bound or "incoming" in bound or "thika" in bound or "mombasa" in bound or "mwingi" in bound or "kajiado" in bound or "narok" in bound
 
 
 @router.get("/report-sessions/analytics/dashboard")

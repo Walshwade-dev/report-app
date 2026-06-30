@@ -281,3 +281,37 @@ def test_build_final_report_reports_generator_errors(
     assert detail["message"] == "Failed to build final report"
     assert detail["error"] == "template failed"
     assert detail["session"]["final_report"]["status"] == "error"
+
+
+def test_is_bound_a():
+    # Juja tests
+    assert reports.is_bound_a("Juja", "Thika Bound") is True
+    assert reports.is_bound_a("Juja", "Nairobi Bound") is False
+    assert reports.is_bound_a("Juja", "Incoming") is True
+    assert reports.is_bound_a("Juja", None) is True
+
+    # Athi River tests
+    assert reports.is_bound_a("Athi River", "Mombasa Bound") is True
+    assert reports.is_bound_a("Athi River", "Nairobi Bound") is False
+
+    # Gilgil tests
+    assert reports.is_bound_a("Gilgil", "Nairobi Bound") is True
+    assert reports.is_bound_a("Gilgil", "Nakuru Bound") is False
+
+    # Kanyonyo tests
+    assert reports.is_bound_a("Kanyonyo", "Mwingi Bound") is True
+    assert reports.is_bound_a("Kanyonyo", "Thika Bound") is False
+
+    # Isinya tests
+    assert reports.is_bound_a("Isinya", "Kajiado Bound") is True
+    assert reports.is_bound_a("Isinya", "Nairobi Bound") is False
+
+    # Suswa tests
+    assert reports.is_bound_a("Suswa", "Narok Bound") is True
+    assert reports.is_bound_a("Suswa", "Nairobi Bound") is False
+
+    # Fallback/None tests
+    assert reports.is_bound_a(None, "Thika Bound") is True
+    assert reports.is_bound_a(None, "Nairobi Bound") is False
+    assert reports.is_bound_a("Unknown", "Nairobi Bound") is False
+    assert reports.is_bound_a("Unknown", "Thika Bound") is True
