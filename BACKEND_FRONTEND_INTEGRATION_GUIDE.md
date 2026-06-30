@@ -17,11 +17,11 @@ This document should be updated after every backend implementation step. Each ti
 ### Current Status Snapshot
 
 ```text
-Status date: 2026-05-14
+Status date: 2026-06-30
 Backend framework: FastAPI
 Frontend: Separate Next.js frontend is being integrated with this backend API
-Current backend mode: Section generators plus filesystem-backed report-session API, including mobile/weighbridge register extraction
-Current integration mode: Frontend-facing upload/preview/build/download routes are wired for implemented sections with restart recovery; local frontend must target the local backend or the deployed backend must be updated
+Current backend mode: Section generators plus filesystem-backed report-session API, including mobile/weighbridge register extraction, SMS summary builders, and locked signatory details
+Current integration mode: Frontend-facing upload/preview/build/download/SMS endpoints are wired for implemented sections with restart recovery; local frontend is targeting the local backend at http://127.0.0.1:8000
 ```
 
 ### Completed
@@ -102,20 +102,22 @@ Reusable CSV fixtures exist for upload-through-build backend tests
 Upload-through-build API test exists for report-session workflow
 Upload-through-build API test covers Excel report download workbook structure
 A4 landscape is the canonical final report page size
+SMS summary API endpoints exist for retrieving date lists and formatted summaries
+Impounded/prohibited calculation corrected to P = Z + R formula
+Approved By/Confirmed By signatory locked to Faith Njani
+Developer Ticket & Prompt Portal page implemented for logging flaws and generating instructions
 ```
 
 ### In Progress
 
 ```text
-Preparing backend hardening tasks after completing report rendering
+Documenting the integration endpoints, locked signatories, and developer portals.
 ```
 
 ### Pending
 
 ```text
 Broaden fixture-based upload tests if more sample cases become available
-Deploy the newer backend to Render, or point local frontend development at http://127.0.0.1:8000
-Visually tune the generated mobile Word report after reviewing a downloaded sample in Word or LibreOffice
 ```
 
 ### Implementation Log
@@ -622,6 +624,8 @@ GET /api/report-sessions/{report_id}/download-final-report
 GET /api/report-sessions/{report_id}/download-excel-report
 GET /api/report-sessions/{report_id}/download-mobile-excel-report
 GET /api/report-sessions/{report_id}/download-mobile-word-report
+GET /api/report-sessions/sms-summaries/dates
+GET /api/report-sessions/sms-summaries/{report_date}
 ```
 
 At the moment, the backend can clean uploaded data, generate standalone Word reports for wideload and impounded/prohibited sections, extract vehicle-level mobile/weighbridge register uploads, build the separate mobile Excel workbook, build the separate mobile Word report, and create filesystem-backed report sessions for the frontend workflow. Daily/hour data, wideload data, impounded/prohibited data, overloaded data, and mobile/weighbridge register data can now be uploaded into a report session and recovered from disk by `report_id`. Manual report inputs can be stored for prepared by, confirmed by, weighbridge name, traffic census, cases cleared in court, transgressions count, transgressions, and extra mobile-report workbook/Word fields. Traffic Census manual input is validated and can be rendered as Section 3. Daily Summary is derived from ready source sections and can be rendered as Section 4. Transgressions manual input is normalized and can be rendered as Section 5 with NIL rows when either table has no records. Section previews are available for daily/hour, traffic census, daily summary, transgressions, wideload, and impounded/prohibited sections as cached PNG, PDF, or DOCX artifacts. The final report can be built, persisted, recovered, and downloaded for the currently implemented sections. The main Excel report can be downloaded directly from processed session data when daily/hour data is ready. The mobile Excel and mobile Word reports can be downloaded after a successful mobile/weighbridge register upload.
@@ -687,6 +691,8 @@ GET /api/report-sessions/{report_id}/download-final-report
 GET /api/report-sessions/{report_id}/download-excel-report
 GET /api/report-sessions/{report_id}/download-mobile-excel-report
 GET /api/report-sessions/{report_id}/download-mobile-word-report
+GET /api/report-sessions/sms-summaries/dates
+GET /api/report-sessions/sms-summaries/{report_date}
 ```
 
 This module stores report state through `report_session_store.py`. The API response shape remains session-oriented, while metadata and generated artifacts are now persisted under `backend/app/storage/` so sessions can be recovered by `report_id`.
@@ -2294,3 +2300,62 @@ After broader fixtures are stable, continue with:
 ```text
 Frontend report-builder implementation planning
 ```
+
+## SMS Summaries API
+
+### 14. Retrieve SMS Summary Dates
+
+Frontend endpoint:
+```text
+GET /api/report-sessions/sms-summaries/dates
+```
+
+Returns a list of unique dates (strings formatted as `YYYY-MM-DD`) that currently have generated report sessions containing SMS summaries.
+
+Response schema:
+```json
+[
+  "2026-05-12",
+  "2026-05-13"
+]
+```
+
+### 15. Retrieve SMS Summaries by Date
+
+Frontend endpoint:
+```text
+GET /api/report-sessions/sms-summaries/{report_date}
+```
+
+Returns an array of SMS summary objects for the specified date. Each object represents an SMS summary text payload for a specific weighbridge session.
+
+Response schema:
+```json
+[
+  {
+    "session_id": "uuid",
+    "station": "Juja",
+    "bound": "Thika Bound",
+    "type": "static_a",
+    "text": "JUJA THIKA BOUND 12/05/2026\n1. WEIGHED: 326\n2. CHARGED: 12\n3. WARNED: 8\n4. FOR COURT: 4\n5. TOTAL OVERLOADED (GVW+AXLE): 12\n6. SPECIAL RELEASE: 0\n7. PROHIBITED (P=Z+R): 8\n8. WIDELOADS: 3\n9. PERMIT: 3\n10. EXEMPT: 0"
+  }
+]
+```
+
+## Calculation Formulas & Constraints
+
+### 16. Impounded & Prohibited Formula Correction
+
+The formula for calculating the total prohibited/impounded vehicles (`P`) is corrected to:
+```text
+P = Z + R
+```
+Where:
+- `Z` = Charged & Prohibited trucks (extracted/derived from daily hour register).
+- `R` = Court Cases Released (manually input by the user under `cases_cleared_in_court`).
+
+This correction applies to all modules (static, mobile, Excel, Word, and SMS summary text payloads).
+
+### 17. Locked Signatory "Faith Njani"
+
+To ensure uniformity and administrative consistency, the "Approved By" or "Confirmed By" signatory field is locked to the name **"Faith Njani"** across all generated reports, templates, and UI metadata configurations. Hand-off manual inputs for `approved_by` or `confirmed_by` default to this value, and the UI disables editing of this field to enforce compliance.
