@@ -7,6 +7,7 @@ import pandas as pd
 from openpyxl import Workbook
 from openpyxl.chart import LineChart, Reference
 from openpyxl.chart.axis import ChartLines
+from openpyxl.chart.shapes import GraphicalProperties
 from openpyxl.chart.label import DataLabelList
 from openpyxl.chart.text import RichText
 from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, TwoCellAnchor
@@ -654,10 +655,10 @@ def _write_daily_summary(ws: Worksheet, session) -> None:
             )
 
 
-def _chart_axis_text_properties() -> RichText:
+def _chart_axis_text_properties(rot: int = -3600000) -> RichText:
     return RichText(
         bodyPr=RichTextProperties(
-            rot=-60000000,
+            rot=rot,
             spcFirstLastPara=True,
             vertOverflow="ellipsis",
             vert="horz",
@@ -677,7 +678,7 @@ def _chart_axis_text_properties() -> RichText:
 
 def _add_daily_hour_chart(ws: Worksheet) -> None:
     chart = LineChart()
-    chart.title = "Graph on Trucks Weighed per Hour"
+    chart.title = "Graph on Trucks Weighed per Hour\n\n\n\n"
     chart.style = 2
     chart.x_axis.axId = 1763517568
     chart.y_axis.axId = 1763495520
@@ -689,8 +690,8 @@ def _add_daily_hour_chart(ws: Worksheet) -> None:
     chart.y_axis.tickLblPos = "nextTo"
     chart.x_axis.numFmt = "General"
     chart.y_axis.numFmt = "General"
-    chart.x_axis.txPr = _chart_axis_text_properties()
-    chart.y_axis.txPr = _chart_axis_text_properties()
+    chart.x_axis.txPr = _chart_axis_text_properties(-3600000)
+    chart.y_axis.txPr = _chart_axis_text_properties(0)
 
     # Calculate dynamic max value from the worksheet data rows 6-29
     max_val = 300
@@ -713,6 +714,9 @@ def _add_daily_hour_chart(ws: Worksheet) -> None:
     chart.y_axis.crosses = "autoZero"
     chart.y_axis.crossBetween = "between"
     chart.y_axis.majorGridlines = ChartLines()
+    chart.y_axis.majorGridlines.graphicalProperties = GraphicalProperties()
+    chart.y_axis.majorGridlines.graphicalProperties.line.solidFill = "E2E8F0"
+    chart.y_axis.majorGridlines.graphicalProperties.line.width = 12700
     chart.legend.position = "b"
     chart.dataLabels = DataLabelList()
     chart.dataLabels.showLegendKey = False
@@ -723,7 +727,7 @@ def _add_daily_hour_chart(ws: Worksheet) -> None:
     chart.dataLabels.showBubbleSize = False
 
     data = Reference(ws, min_col=21, max_col=24, min_row=5, max_row=29)
-    categories = Reference(ws, min_col=20, min_row=6, max_row=29)
+    categories = Reference(ws, min_col=3, min_row=6, max_row=29)
     chart.add_data(data, titles_from_data=True)
     chart.set_categories(categories)
 
