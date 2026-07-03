@@ -16,7 +16,7 @@ from docx.shared import Inches, Pt
 
 from app.services.daily_hour_processor import HOURS
 from app.services.mobile_report_processor import summarize_mobile_report
-from app.services.report_layout import enable_field_updates
+from app.services.report_layout import LOGO_PATH, enable_field_updates
 
 
 FONT_NAME = "Arial"
@@ -211,6 +211,14 @@ def _set_cell_width(cell, width: int) -> None:
     tc_w.set(qn("w:type"), "dxa")
 
 
+def _set_cell_no_wrap(cell) -> None:
+    tc_pr = cell._tc.get_or_add_tcPr()
+    no_wrap = tc_pr.find(qn("w:noWrap"))
+    if no_wrap is None:
+        no_wrap = OxmlElement("w:noWrap")
+        tc_pr.append(no_wrap)
+
+
 def _set_table_borders(table, size: str = "8") -> None:
     tbl_pr = table._tbl.tblPr
     borders = tbl_pr.find(qn("w:tblBorders"))
@@ -227,6 +235,21 @@ def _set_table_borders(table, size: str = "8") -> None:
         border.set(qn("w:sz"), size)
         border.set(qn("w:space"), "0")
         border.set(qn("w:color"), "000000")
+
+
+def _remove_table_borders(table) -> None:
+    tbl_pr = table._tbl.tblPr
+    borders = tbl_pr.find(qn("w:tblBorders"))
+    if borders is None:
+        borders = OxmlElement("w:tblBorders")
+        tbl_pr.append(borders)
+
+    for border_name in ["top", "left", "bottom", "right", "insideH", "insideV"]:
+        border = borders.find(qn(f"w:{border_name}"))
+        if border is None:
+            border = OxmlElement(f"w:{border_name}")
+            borders.append(border)
+        border.set(qn("w:val"), "nil")
 
 
 def _set_row_height(row, inches: float) -> None:
@@ -942,17 +965,16 @@ def _add_mobile_footer(section, report_date, session) -> None:
         - section.right_margin.inches
     )
     tab_stops = paragraph.paragraph_format.tab_stops
-    report_label_tab = min(2.75, max(2.25, printable_width * 0.4))
+    report_label_tab = min(3.35, max(3.0, printable_width * 0.34))
     tab_stops.add_tab_stop(Inches(report_label_tab), WD_TAB_ALIGNMENT.LEFT)
     tab_stops.add_tab_stop(Inches(printable_width), WD_TAB_ALIGNMENT.RIGHT)
 
     station = _mobile_station_label(session)
-        
+
     date_obj = _date_value(report_date)
     day = date_obj.day
     suffix = "TH" if 11 <= day <= 13 else {1: "ST", 2: "ND", 3: "RD"}.get(day % 10, "TH")
     month_year = date_obj.strftime("%B, %Y").upper()
-    date_str = f"{day}{suffix} {month_year}"
 
     reference = paragraph.add_run("KeNHA/WB/MTCE/4339/2025")
     _style_footer_run(reference)
@@ -960,8 +982,15 @@ def _add_mobile_footer(section, report_date, session) -> None:
     first_tab = paragraph.add_run("\t")
     _style_footer_run(first_tab)
 
-    report_label = paragraph.add_run(f"{station} MOBILE REPORT 1 {date_str}")
+    report_label = paragraph.add_run(f"{station} MOBILE REPORT 1 {day}")
     _style_footer_run(report_label)
+
+    suffix_label = paragraph.add_run(suffix)
+    _style_footer_run(suffix_label)
+    suffix_label.font.superscript = True
+
+    month_year_label = paragraph.add_run(f" {month_year}")
+    _style_footer_run(month_year_label)
 
     second_tab = paragraph.add_run("\tPage ")
     _style_footer_run(second_tab)
@@ -974,14 +1003,50 @@ def _add_mobile_footer(section, report_date, session) -> None:
 
 def _add_mobile_title_header(section, session) -> None:
     header = section.header
-    paragraph = header.paragraphs[0]
-    paragraph.clear()
-    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    paragraph.paragraph_format.space_after = Pt(12)
-    
+    for paragraph in list(header.paragraphs):
+        paragraph._element.getparent().remove(paragraph._element)
+    for table in list(header.tables):
+        table._element.getparent().remove(table._element)
+
+    printable_width = (
+        section.page_width.inches
+        - section.left_margin.inches
+        - section.right_margin.inches
+    )
+    table = header.add_table(rows=1, cols=3, width=Inches(printable_width))
+    table.allow_autofit = False
+    _set_table_width(table, int(printable_width * 1440))
+    _remove_table_borders(table)
+
+    logo_width = 1.15
+    right_spacer_width = 0.1
+    center_width = max(printable_width - logo_width - right_spacer_width, 2.0)
+    column_widths = [logo_width, center_width, right_spacer_width]
+    column_width_twips = [int(width * 1440) for width in column_widths]
+    _set_table_grid(table, column_width_twips)
+    for col, width in enumerate(column_width_twips):
+        _set_cell_width(table.cell(0, col), width)
+
     station = _mobile_station_label(session)
-        
-    run = paragraph.add_run(f"{station} MOBILE DAILY REPORT 1")
+
+    logo_cell = table.cell(0, 0)
+    logo_cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
+    logo_paragraph = logo_cell.paragraphs[0]
+    logo_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    logo_paragraph.paragraph_format.space_before = Pt(0)
+    logo_paragraph.paragraph_format.space_after = Pt(0)
+    if LOGO_PATH.exists():
+        logo_paragraph.add_run().add_picture(str(LOGO_PATH), width=Inches(1.0))
+
+    title_cell = table.cell(0, 1)
+    title_cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
+    _set_cell_no_wrap(title_cell)
+    title_paragraph = title_cell.paragraphs[0]
+    title_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title_paragraph.paragraph_format.space_before = Pt(0)
+    title_paragraph.paragraph_format.space_after = Pt(0)
+
+    run = title_paragraph.add_run(f"{station} MOBILE DAILY REPORT 1")
     run.bold = True
     run.underline = True
     run.font.name = "Times New Roman"

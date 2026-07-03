@@ -413,8 +413,14 @@ def test_mobile_report_downloads_mapped_word_document(client):
     with zipfile.ZipFile(io.BytesIO(download.content)) as docx_zip:
         document_xml = docx_zip.read("word/document.xml")
         footer_xml = docx_zip.read("word/footer1.xml")
+        header_xmls = [
+            docx_zip.read(name)
+            for name in docx_zip.namelist()
+            if name.startswith("word/header")
+        ]
     document_root = ElementTree.fromstring(document_xml)
     footer_root = ElementTree.fromstring(footer_xml)
+    header_roots = [ElementTree.fromstring(header_xml) for header_xml in header_xmls]
     footer_tabs = footer_root.findall(".//w:tabs/w:tab", WORD_NAMESPACE)
     document_body = document_root.find("w:body", WORD_NAMESPACE)
     body_children = list(document_body) if document_body is not None else []
@@ -460,6 +466,14 @@ def test_mobile_report_downloads_mapped_word_document(client):
         )
     )
 
+    def section_header_text(section) -> str:
+        texts = [paragraph.text for paragraph in section.header.paragraphs]
+        for table in section.header.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    texts.extend(paragraph.text for paragraph in cell.paragraphs)
+        return "\n".join(text for text in texts if text)
+
     assert len(document.sections) == 10
     assert document.sections[0].orientation == WD_ORIENT.PORTRAIT
     assert all(
@@ -468,12 +482,29 @@ def test_mobile_report_downloads_mapped_word_document(client):
     )
     assert len(document.tables) == 9
 
-    assert document.sections[0].header.paragraphs[0].text == (
+    assert section_header_text(document.sections[0]) == (
         "JUJA MOBILE DAILY REPORT 1"
     )
-    assert document.sections[1].header.paragraphs[0].text == (
+    assert section_header_text(document.sections[1]) == (
         "JUJA MOBILE DAILY REPORT 1"
     )
+    assert header_roots
+    assert all(
+        header_root.find(".//a:blip", CHART_NAMESPACE) is not None
+        for header_root in header_roots
+    )
+    for header_root in header_roots:
+        header_cells = header_root.findall(".//w:tc", WORD_NAMESPACE)
+        assert len(header_cells) == 3
+        assert header_cells[0].find(".//a:blip", CHART_NAMESPACE) is not None
+        assert header_cells[1].find(".//w:noWrap", WORD_NAMESPACE) is not None
+        header_grid_widths = [
+            int(column.attrib[f"{{{WORD_NAMESPACE['w']}}}w"])
+            for column in header_root.findall(".//w:tblGrid/w:gridCol", WORD_NAMESPACE)
+        ]
+        assert len(header_grid_widths) == 3
+        assert header_grid_widths[1] > header_grid_widths[0]
+        assert header_grid_widths[1] > header_grid_widths[2]
     assert all(
         paragraph.text != "JUJA MOBILE DAILY REPORT 1"
         for paragraph in document.paragraphs
@@ -488,6 +519,16 @@ def test_mobile_report_downloads_mapped_word_document(client):
     assert "KeNHA/WB/MTCE/43339/2025" not in footer_text
     assert "JUJA MOBILE MOBILE REPORT 1" not in footer_text
     assert "REPORT 1  12TH" not in footer_text
+    superscript_footer_text = [
+        "".join(
+            text_node.text or ""
+            for text_node in run.findall(".//w:t", WORD_NAMESPACE)
+        )
+        for run in footer_root.findall(".//w:r", WORD_NAMESPACE)
+        if run.find("w:rPr/w:vertAlign[@w:val='superscript']", WORD_NAMESPACE)
+        is not None
+    ]
+    assert "TH" in superscript_footer_text
     assert len(footer_tabs) >= 2
     assert footer_tabs[0].attrib[f"{{{WORD_NAMESPACE['w']}}}val"] == "left"
     assert footer_tabs[1].attrib[f"{{{WORD_NAMESPACE['w']}}}val"] == "right"
@@ -596,9 +637,12 @@ def test_mobile_report_downloads_mapped_word_document(client):
 
     with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
         media_files = [
-            name for name in archive.namelist() if name.startswith("word/media/")
+            archive.read(name)
+            for name in archive.namelist()
+            if name.startswith("word/media/")
         ]
     assert media_files
+    assert get_asset_path("bgwhitelogo.png").read_bytes() in media_files
 
 
 def assert_docx_preview(client, report_id: str, section_name: str) -> None:
