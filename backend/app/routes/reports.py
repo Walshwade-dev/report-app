@@ -365,27 +365,81 @@ def is_bound_a(station_code: str | None, bound_name: str | None) -> bool:
     return "bound a" in bound or "incoming" in bound or "thika" in bound or "mombasa" in bound or "mwingi" in bound or "kajiado" in bound or "narok" in bound
 
 
+def mobile_report_slot(bound_name: str | None) -> str:
+    bound = (bound_name or "").strip().lower()
+    if "2" in bound or "two" in bound:
+        return "mobile_2"
+    return "mobile_1"
+
+
+def mobile_report_label(slot: str) -> str:
+    return "Mobile 2" if slot == "mobile_2" else "Mobile 1"
+
+
+def normalize_mobile_filter(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip().lower().replace("-", "_").replace(" ", "_")
+    if cleaned in {"mobile_2", "2", "two"}:
+        return "mobile_2"
+    if cleaned in {"mobile_1", "1", "one"}:
+        return "mobile_1"
+    return cleaned or None
+
+
+def static_bound_key(session: ReportSession) -> str:
+    station_code = classify_station(session.station or session.weighbridge_name)
+    return "boundA" if is_bound_a(station_code, session.bound) else "boundB"
+
+
+def empty_static_kpis() -> dict:
+    return {
+        "label": "",
+        "weighed": 0,
+        "overloads": 0,
+        "psvOverloads": 0,
+        "minGross": 0,
+        "charged": 0,
+        "redistributed": 0,
+        "chargedRedist": "0 / 0",
+        "reportsGenerated": 0,
+    }
+
+
+def add_static_kpis(target: dict, session: ReportSession) -> None:
+    y = daily_hour_total_column(session, "Y") or 0
+    g = daily_hour_total_column(session, "G") or 0
+    z = daily_hour_total_column(session, "Z") or 0
+    r = daily_hour_total_column(session, "R") or 0
+
+    target["weighed"] += daily_hour_total_column(session, "X") or 0
+    target["overloads"] += max(y - g, 0)
+    target["minGross"] += g
+    target["charged"] += z
+    target["redistributed"] += r
+    target["reportsGenerated"] += 1
+    target["chargedRedist"] = f"{target['charged']} / {target['redistributed']}"
+
+
 @router.get("/report-sessions/analytics/dashboard")
-async def get_analytics_dashboard():
+async def get_analytics_dashboard(
+    static_date: str | None = None,
+    mobile_date: str | None = None,
+    mobile_bound: str | None = None,
+):
     sessions = []
+    session_modified_at: dict[str, float] = {}
     for metadata_path in sorted(report_session_store.sessions_dir.glob("*.json")):
         try:
             session = report_session_store.get(metadata_path.stem)
             if session:
                 sessions.append(session)
+                session_modified_at[session.report_id] = metadata_path.stat().st_mtime
         except Exception:
             pass
 
-    x_total = 0
-    y_total = 0
-    g_total = 0
-    z_total = 0
-    r_total = 0
-    wideloads = 0
-    
-    mobile_weighed = 0
-    mobile_warned = 0
-    mobile_charged = 0
+    latest_static_sessions: dict[tuple[str, str, str], tuple[ReportSession, float]] = {}
+    latest_mobile_sessions: dict[tuple[str, str], tuple[ReportSession, float]] = {}
 
     station_names = {
         "Juja": "Juja Weighbridge",
@@ -411,51 +465,120 @@ async def get_analytics_dashboard():
     
     for s in sessions:
         if s.sections.get("mobile_report", {}).get("status") == "ready":
-            summary = s.sections["mobile_report"].get("summary", {})
-            mobile_weighed += summary.get("total_trucks_weighed", 0)
-            mobile_warned += summary.get("warned_trucks", 0)
-            mobile_charged += summary.get("charged_trucks", 0)
+            slot = mobile_report_slot(s.bound)
+            key = (s.report_date, slot)
+            modified_at = session_modified_at.get(s.report_id, 0)
+            previous = latest_mobile_sessions.get(key)
+            if previous is None or modified_at >= previous[1]:
+                latest_mobile_sessions[key] = (s, modified_at)
             
         if s.sections.get("daily_hour", {}).get("status") == "ready":
-            x = daily_hour_total_column(s, "X") or 0
-            y = daily_hour_total_column(s, "Y") or 0
-            g = daily_hour_total_column(s, "G") or 0
-            z = daily_hour_total_column(s, "Z") or 0
-            r = daily_hour_total_column(s, "R") or 0
-            called = daily_hour_total_column(s, "C") or 0
-            cases = s.manual_inputs.get("cases_cleared_in_court", 0) or 0
-
-            x_total += x
-            y_total += y
-            g_total += g
-            z_total += z
-            r_total += r
-            wideloads += get_wideload_count_from_session(s) or 0
-
             code = classify_station(s.station or s.weighbridge_name)
-            if code and code in stations_data:
-                bound_key = "boundA" if is_bound_a(code, s.bound) else "boundB"
-                overload_no_permit = max(y - g, 0)
-                compliant = max(called - overload_no_permit, 0)
+            station_key = code or (s.station or s.weighbridge_name or "").strip().lower()
+            bound_key = static_bound_key(s)
+            modified_at = session_modified_at.get(s.report_id, 0)
+            key = (s.report_date, station_key, bound_key)
+            previous = latest_static_sessions.get(key)
+            if previous is None or modified_at >= previous[1]:
+                latest_static_sessions[key] = (s, modified_at)
 
-                stations_data[code]["traffic"][bound_key] += x
-                stations_data[code]["cases"][bound_key] += cases
-                stations_data[code]["compliance"][bound_key]["calledIn"] += called
-                stations_data[code]["compliance"][bound_key]["weighed"] += x
-                stations_data[code]["compliance"][bound_key]["compliant"] += compliant
+    static_dates = sorted(
+        {report_date for report_date, _, _ in latest_static_sessions},
+        reverse=True,
+    )
+    selected_static_date = (
+        static_date if static_date in static_dates else (static_dates[0] if static_dates else None)
+    )
+
+    static_by_bound = {
+        "boundA": {**empty_static_kpis(), "label": "Bound A"},
+        "boundB": {**empty_static_kpis(), "label": "Bound B"},
+        "total": {**empty_static_kpis(), "label": "Total"},
+    }
+
+    for (report_date, _, bound_key), (s, _) in latest_static_sessions.items():
+        x = daily_hour_total_column(s, "X") or 0
+        y = daily_hour_total_column(s, "Y") or 0
+        g = daily_hour_total_column(s, "G") or 0
+        called = daily_hour_total_column(s, "C") or 0
+        cases = s.manual_inputs.get("cases_cleared_in_court", 0) or 0
+
+        code = classify_station(s.station or s.weighbridge_name)
+        if code and code in stations_data:
+            overload_no_permit = max(y - g, 0)
+            compliant = max(called - overload_no_permit, 0)
+
+            stations_data[code]["traffic"][bound_key] += x
+            stations_data[code]["cases"][bound_key] += cases
+            stations_data[code]["compliance"][bound_key]["calledIn"] += called
+            stations_data[code]["compliance"][bound_key]["weighed"] += x
+            stations_data[code]["compliance"][bound_key]["compliant"] += compliant
+
+        if selected_static_date and report_date == selected_static_date:
+            if s.bound:
+                static_by_bound[bound_key]["label"] = s.bound
+            add_static_kpis(static_by_bound[bound_key], s)
+            add_static_kpis(static_by_bound["total"], s)
+
+    mobile_reports = [
+        {
+            "date": report_date,
+            "bound": slot,
+            "bound_label": mobile_report_label(slot),
+            "label": f"{report_date} - {mobile_report_label(slot)}",
+            "report_id": session.report_id,
+            "updated_at": modified_at,
+        }
+        for (report_date, slot), (session, modified_at) in latest_mobile_sessions.items()
+    ]
+    mobile_reports.sort(
+        key=lambda item: (
+            item["date"],
+            1 if item["bound"] == "mobile_2" else 0,
+            item["updated_at"],
+        ),
+        reverse=True,
+    )
+
+    selected_mobile = None
+    selected_mobile_bound = normalize_mobile_filter(mobile_bound)
+    for option in mobile_reports:
+        if mobile_date and option["date"] != mobile_date:
+            continue
+        if selected_mobile_bound and option["bound"] != selected_mobile_bound:
+            continue
+        selected_mobile = option
+        break
+
+    selected_session = None
+    if selected_mobile:
+        selected_key = (selected_mobile["date"], selected_mobile["bound"])
+        selected_session = latest_mobile_sessions[selected_key][0]
+
+    mobile_summary = (
+        selected_session.sections["mobile_report"].get("summary", {})
+        if selected_session is not None
+        else {}
+    )
 
     return {
         "static": {
-            "weighed": x_total,
-            "overloads": max(y_total - g_total, 0),
-            "minGross": g_total,
-            "chargedRedist": f"{z_total} / {r_total}",
-            "reportsGenerated": len([s for s in sessions if s.sections.get("daily_hour", {}).get("status") == "ready"]),
+            "weighed": static_by_bound["total"]["weighed"],
+            "overloads": static_by_bound["total"]["overloads"],
+            "psvOverloads": static_by_bound["total"]["psvOverloads"],
+            "minGross": static_by_bound["total"]["minGross"],
+            "chargedRedist": static_by_bound["total"]["chargedRedist"],
+            "reportsGenerated": static_by_bound["total"]["reportsGenerated"],
+            "dates": static_dates,
+            "selectedDate": selected_static_date,
+            "byBound": static_by_bound,
         },
         "mobile": {
-            "weighed": mobile_weighed,
-            "warned": mobile_warned,
-            "charged": mobile_charged,
+            "weighed": mobile_summary.get("total_trucks_weighed", 0),
+            "warned": mobile_summary.get("warned_trucks", 0),
+            "charged": mobile_summary.get("charged_trucks", 0),
+            "reports": mobile_reports,
+            "selected": selected_mobile,
         },
         "stations": list(stations_data.values())
     }
@@ -1075,7 +1198,15 @@ async def get_sms_summary_dates():
     for metadata_path in report_session_store.sessions_dir.glob("*.json"):
         try:
             session = report_session_store.get(metadata_path.stem)
-            if session and session.report_date:
+            has_sms_data = (
+                session
+                and session.report_date
+                and (
+                    session.sections.get("daily_hour", {}).get("status") == "ready"
+                    or session.sections.get("mobile_report", {}).get("status") == "ready"
+                )
+            )
+            if has_sms_data:
                 dates.add(session.report_date)
         except Exception:
             pass
@@ -1085,7 +1216,7 @@ async def get_sms_summary_dates():
 @router.get("/report-sessions/sms-summaries/{report_date}")
 async def get_sms_summaries_by_date(report_date: str, station: str | None = None):
     station_val = station or "Juja"
-    sessions_on_date = []
+    sessions_on_date: list[tuple[ReportSession, float]] = []
     for metadata_path in report_session_store.sessions_dir.glob("*.json"):
         try:
             session = report_session_store.get(metadata_path.stem)
@@ -1100,7 +1231,7 @@ async def get_sms_summaries_by_date(report_date: str, station: str | None = None
                     matched = True
                 
                 if matched:
-                    sessions_on_date.append(session)
+                    sessions_on_date.append((session, metadata_path.stat().st_mtime))
         except Exception:
             pass
 
@@ -1108,23 +1239,33 @@ async def get_sms_summaries_by_date(report_date: str, station: str | None = None
     static_b = None
     mobile_1 = None
     mobile_2 = None
+    static_a_modified_at = 0
+    static_b_modified_at = 0
+    mobile_1_modified_at = 0
+    mobile_2_modified_at = 0
 
-    for s in sessions_on_date:
+    for s, modified_at in sessions_on_date:
         bound_lower = (s.bound or "").lower()
         station_lower = (s.station or s.weighbridge_name or "").lower()
         is_mobile = "mobile" in bound_lower or "mobile" in station_lower or "mobile_report" in s.sections
         
-        if is_mobile:
-            if "2" in bound_lower or "two" in bound_lower:
-                mobile_2 = s
-            else:
+        if is_mobile and s.sections.get("mobile_report", {}).get("status") == "ready":
+            if mobile_report_slot(s.bound) == "mobile_2":
+                if modified_at >= mobile_2_modified_at:
+                    mobile_2 = s
+                    mobile_2_modified_at = modified_at
+            elif modified_at >= mobile_1_modified_at:
                 mobile_1 = s
-        else:
+                mobile_1_modified_at = modified_at
+        elif s.sections.get("daily_hour", {}).get("status") == "ready":
             station_code = classify_station(s.station or s.weighbridge_name)
             if is_bound_a(station_code, s.bound):
-                static_a = s
-            else:
+                if modified_at >= static_a_modified_at:
+                    static_a = s
+                    static_a_modified_at = modified_at
+            elif modified_at >= static_b_modified_at:
                 static_b = s
+                static_b_modified_at = modified_at
 
     try:
         date_formatted = datetime.strptime(report_date, "%Y-%m-%d").strftime("%d.%m.%Y")

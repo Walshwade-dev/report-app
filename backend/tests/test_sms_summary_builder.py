@@ -75,7 +75,7 @@ def test_sms_summary_mobile():
     assert "Warned (A)=0" in summary
     assert "Legal=1" in summary
     assert "Charged & Prohibited(Z)=1" in summary
-    assert "Above 2 Tonnes=1" in summary
+    assert "Above 2 Tonnes =1" in summary
     assert "Kilometers covered=150KMS" in summary
     assert "Vehicle used:- KDS042Z" in summary
     assert "By:-ANASTASHA KENDA." in summary

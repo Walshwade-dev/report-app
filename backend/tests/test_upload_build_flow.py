@@ -1,4 +1,5 @@
 import io
+import os
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree
@@ -6,6 +7,7 @@ from xml.etree import ElementTree
 from docx import Document
 from docx.enum.section import WD_ORIENT
 import matplotlib.pyplot as plt
+import pandas as pd
 from openpyxl import load_workbook
 
 from app.services.mobile_word_report_builder import (
@@ -949,3 +951,177 @@ def test_summary_cards_report_awaiting_data_for_new_session(client, temp_store):
     assert all(card["value"] is None for card in payload["cards"])
     assert all(card["display_value"] == "—" for card in payload["cards"])
     assert all(card["status"] == "awaiting_data" for card in payload["cards"])
+
+
+def test_dashboard_mobile_kpis_filter_and_replace_duplicate_reports(client, temp_store):
+    def add_mobile_session(
+        report_date: str,
+        bound: str,
+        *,
+        weighed: int,
+        warned: int,
+        charged: int,
+        modified_at: float,
+    ) -> None:
+        session = temp_store.create(
+            report_date=report_date,
+            station="Juja mobile",
+            bound=bound,
+            weighbridge_name="Juja mobile",
+        )
+        temp_store.set_section_ready(
+            session.report_id,
+            "mobile_report",
+            pd.DataFrame({"ticket_no": [session.report_id]}),
+            extra={
+                "summary": {
+                    "total_trucks_weighed": weighed,
+                    "warned_trucks": warned,
+                    "charged_trucks": charged,
+                }
+            },
+        )
+        os.utime(
+            temp_store._session_metadata_path(session.report_id),
+            (modified_at, modified_at),
+        )
+
+    add_mobile_session(
+        "2026-07-03",
+        "Mobile 1",
+        weighed=10,
+        warned=2,
+        charged=1,
+        modified_at=1000,
+    )
+    add_mobile_session(
+        "2026-07-03",
+        "Mobile 1",
+        weighed=25,
+        warned=4,
+        charged=3,
+        modified_at=2000,
+    )
+    add_mobile_session(
+        "2026-07-03",
+        "Mobile 2",
+        weighed=7,
+        warned=1,
+        charged=1,
+        modified_at=1500,
+    )
+
+    mobile_1 = client.get(
+        "/api/report-sessions/analytics/dashboard"
+        "?mobile_date=2026-07-03&mobile_bound=mobile_1"
+    )
+    assert mobile_1.status_code == 200
+    mobile_1_payload = mobile_1.json()
+    assert mobile_1_payload["mobile"]["weighed"] == 25
+    assert mobile_1_payload["mobile"]["warned"] == 4
+    assert mobile_1_payload["mobile"]["charged"] == 3
+    assert mobile_1_payload["mobile"]["selected"]["bound"] == "mobile_1"
+    assert len(mobile_1_payload["mobile"]["reports"]) == 2
+
+    mobile_2 = client.get(
+        "/api/report-sessions/analytics/dashboard"
+        "?mobile_date=2026-07-03&mobile_bound=mobile_2"
+    )
+    assert mobile_2.status_code == 200
+    mobile_2_payload = mobile_2.json()
+    assert mobile_2_payload["mobile"]["weighed"] == 7
+    assert mobile_2_payload["mobile"]["warned"] == 1
+    assert mobile_2_payload["mobile"]["charged"] == 1
+    assert mobile_2_payload["mobile"]["selected"]["bound"] == "mobile_2"
+
+
+def test_dashboard_static_kpis_filter_bounds_and_replace_duplicates(client, temp_store):
+    def add_static_session(
+        report_date: str,
+        bound: str,
+        *,
+        x: int,
+        y: int,
+        g: int,
+        z: int,
+        r: int,
+        modified_at: float,
+    ) -> None:
+        session = temp_store.create(
+            report_date=report_date,
+            station="Juja",
+            bound=bound,
+            weighbridge_name="Juja",
+        )
+        temp_store.set_section_ready(
+            session.report_id,
+            "daily_hour",
+            pd.DataFrame(
+                [
+                    {
+                        "DATE": "Totals",
+                        "X": x,
+                        "Y": y,
+                        "G": g,
+                        "Z": z,
+                        "R": r,
+                        "C": x + y,
+                    }
+                ]
+            ),
+        )
+        os.utime(
+            temp_store._session_metadata_path(session.report_id),
+            (modified_at, modified_at),
+        )
+
+    add_static_session(
+        "2026-07-03",
+        "Thika Bound",
+        x=10,
+        y=5,
+        g=1,
+        z=2,
+        r=1,
+        modified_at=1000,
+    )
+    add_static_session(
+        "2026-07-03",
+        "Thika Bound",
+        x=30,
+        y=8,
+        g=3,
+        z=4,
+        r=2,
+        modified_at=2000,
+    )
+    add_static_session(
+        "2026-07-03",
+        "Nairobi Bound",
+        x=20,
+        y=6,
+        g=1,
+        z=3,
+        r=1,
+        modified_at=1500,
+    )
+
+    response = client.get(
+        "/api/report-sessions/analytics/dashboard?static_date=2026-07-03"
+    )
+
+    assert response.status_code == 200
+    static = response.json()["static"]
+    assert static["selectedDate"] == "2026-07-03"
+    assert static["dates"] == ["2026-07-03"]
+    assert static["byBound"]["boundA"]["label"] == "Thika Bound"
+    assert static["byBound"]["boundB"]["label"] == "Nairobi Bound"
+    assert static["byBound"]["boundA"]["weighed"] == 30
+    assert static["byBound"]["boundA"]["overloads"] == 5
+    assert static["byBound"]["boundA"]["chargedRedist"] == "4 / 2"
+    assert static["byBound"]["boundB"]["weighed"] == 20
+    assert static["byBound"]["boundB"]["overloads"] == 5
+    assert static["byBound"]["total"]["weighed"] == 50
+    assert static["byBound"]["total"]["overloads"] == 10
+    assert static["weighed"] == 50
+    assert static["reportsGenerated"] == 2
