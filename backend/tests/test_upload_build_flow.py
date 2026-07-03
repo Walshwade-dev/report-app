@@ -5,8 +5,16 @@ from xml.etree import ElementTree
 
 from docx import Document
 from docx.enum.section import WD_ORIENT
+import matplotlib.pyplot as plt
 from openpyxl import load_workbook
 
+from app.services.mobile_word_report_builder import (
+    _display_date,
+    _mobile_hourly_chart_scale,
+    _plot_mobile_hourly_chart_lines,
+    _style_mobile_hourly_chart_axes,
+    _vehicle_display_date,
+)
 from app.services.report_layout import (
     A4_LANDSCAPE_HEIGHT_INCHES,
     A4_LANDSCAPE_WIDTH_INCHES,
@@ -38,6 +46,45 @@ def fixture_upload(name: str, content_type: str = "text/csv"):
             content_type,
         )
     }
+
+
+def test_mobile_word_report_date_labels_keep_short_month_names():
+    assert _display_date("2026-05-12", upper=True) == "12-MAY-26"
+    assert _display_date("2026-06-28", upper=True) == "28-JUNE-26"
+    assert _display_date("2026-07-28", upper=True) == "28-JULY-26"
+    assert _display_date("2026-09-28", upper=True) == "28-SEP-26"
+    assert _vehicle_display_date("2026-06-28") == "28-JUN-26"
+
+
+def test_mobile_word_report_chart_scale_and_axis_style():
+    assert _mobile_hourly_chart_scale(15) == (17, 2)
+    assert _mobile_hourly_chart_scale(20) == (20, 2)
+    assert _mobile_hourly_chart_scale(21) == (26, 5)
+
+    fig, ax = plt.subplots()
+    try:
+        _style_mobile_hourly_chart_axes(ax)
+
+        assert ax.spines["left"].get_visible() is False
+        assert ax.spines["top"].get_visible() is False
+        assert ax.spines["right"].get_visible() is False
+        assert ax.xaxis.majorTicks[0].tick1line.get_markersize() == 0
+        assert ax.yaxis.majorTicks[0].tick1line.get_markersize() == 0
+        assert any(line.get_visible() for line in ax.yaxis.get_gridlines())
+        assert not any(line.get_visible() for line in ax.xaxis.get_gridlines())
+    finally:
+        plt.close(fig)
+
+
+def test_mobile_word_report_chart_legend_labels_and_no_axis_caption():
+    fig, ax = plt.subplots()
+    try:
+        _plot_mobile_hourly_chart_lines(ax, [1] * 24, [0] * 24)
+
+        assert [line.get_label() for line in ax.lines] == ["WEIGHED", "CHARGED"]
+        assert ax.get_xlabel() == ""
+    finally:
+        plt.close(fig)
 
 
 def create_report_session(client) -> str:
@@ -314,6 +361,12 @@ def test_mobile_report_downloads_mapped_excel_workbook(client):
 def test_mobile_report_downloads_mapped_word_document(client):
     report_id = create_report_session(client)
 
+    metadata_response = client.patch(
+        f"/api/report-sessions/{report_id}/metadata",
+        json={"station": "Juja mobile"},
+    )
+    assert metadata_response.status_code == 200
+
     manual_response = client.patch(
         f"/api/report-sessions/{report_id}/manual-inputs",
         json={
@@ -322,8 +375,8 @@ def test_mobile_report_downloads_mapped_word_document(client):
             "extra": {
                 "mobile_report": {
                     "route": "westlands-parklands-ruiru-juja",
-                    "danka_staff": "dm duncan odhiambo",
-                    "police_officers": "cpl emason sautet",
+                    "danka_staff": "dm duncan odhiambo / driver jane doe",
+                    "police_officers": "cpl emason sautet / pc jane doe",
                     "mobile_vehicle": "kds042z",
                     "mileage_start": 61267,
                     "mileage_end": 61447,
@@ -356,6 +409,56 @@ def test_mobile_report_downloads_mapped_word_document(client):
     assert download.content.startswith(b"PK")
 
     document = Document(io.BytesIO(download.content))
+    footer_text = document.sections[0].footer.paragraphs[0].text
+    with zipfile.ZipFile(io.BytesIO(download.content)) as docx_zip:
+        document_xml = docx_zip.read("word/document.xml")
+        footer_xml = docx_zip.read("word/footer1.xml")
+    document_root = ElementTree.fromstring(document_xml)
+    footer_root = ElementTree.fromstring(footer_xml)
+    footer_tabs = footer_root.findall(".//w:tabs/w:tab", WORD_NAMESPACE)
+    document_body = document_root.find("w:body", WORD_NAMESPACE)
+    body_children = list(document_body) if document_body is not None else []
+    first_table_index = next(
+        index
+        for index, child in enumerate(body_children)
+        if child.tag == f"{{{WORD_NAMESPACE['w']}}}tbl"
+    )
+    second_table_index = next(
+        index
+        for index, child in enumerate(
+            body_children[first_table_index + 1:],
+            start=first_table_index + 1,
+        )
+        if child.tag == f"{{{WORD_NAMESPACE['w']}}}tbl"
+    )
+    textbox_after_first_table = any(
+        child.find(".//w:txbxContent", WORD_NAMESPACE) is not None
+        for child in body_children[first_table_index + 1:second_table_index]
+    )
+    textbox_paragraph = next(
+        child
+        for child in body_children[first_table_index + 1:second_table_index]
+        if child.find(".//w:txbxContent", WORD_NAMESPACE) is not None
+    )
+    textbox_outer_spacing = textbox_paragraph.find(
+        "w:pPr/w:spacing",
+        WORD_NAMESPACE,
+    )
+    textbox_outer_alignment = textbox_paragraph.find(
+        "w:pPr/w:jc",
+        WORD_NAMESPACE,
+    )
+    inner_textbox_alignments = textbox_paragraph.findall(
+        ".//w:txbxContent/w:p/w:pPr/w:jc",
+        WORD_NAMESPACE,
+    )
+    textbox_text = "\n".join(
+        text_node.text or ""
+        for text_node in document_root.findall(
+            ".//w:txbxContent//w:t",
+            WORD_NAMESPACE,
+        )
+    )
 
     assert len(document.sections) == 10
     assert document.sections[0].orientation == WD_ORIENT.PORTRAIT
@@ -365,16 +468,51 @@ def test_mobile_report_downloads_mapped_word_document(client):
     )
     assert len(document.tables) == 9
 
+    assert document.sections[0].header.paragraphs[0].text == (
+        "JUJA MOBILE DAILY REPORT 1"
+    )
+    assert document.sections[1].header.paragraphs[0].text == (
+        "JUJA MOBILE DAILY REPORT 1"
+    )
+    assert all(
+        paragraph.text != "JUJA MOBILE DAILY REPORT 1"
+        for paragraph in document.paragraphs
+    )
+    assert all(
+        "JUJA MOBILE MOBILE DAILY REPORT 1" not in paragraph.text
+        for paragraph in document.paragraphs
+    )
+    assert footer_text.startswith(
+        "KeNHA/WB/MTCE/4339/2025\tJUJA MOBILE REPORT 1 12TH MAY, 2026\tPage "
+    )
+    assert "KeNHA/WB/MTCE/43339/2025" not in footer_text
+    assert "JUJA MOBILE MOBILE REPORT 1" not in footer_text
+    assert "REPORT 1  12TH" not in footer_text
+    assert len(footer_tabs) >= 2
+    assert footer_tabs[0].attrib[f"{{{WORD_NAMESPACE['w']}}}val"] == "left"
+    assert footer_tabs[1].attrib[f"{{{WORD_NAMESPACE['w']}}}val"] == "right"
+
     assert any(
         paragraph.text == "1.0 DAILY AND HOURLY STATISTICS"
         for paragraph in document.paragraphs
     )
-    assert any(
-        paragraph.text == "Prepared by: Fredrick Kariuki"
-        for paragraph in document.paragraphs
+    assert "Prepared by: Fredrick Kariuki" in textbox_text
+    assert "Approved by: Faith Njani" in textbox_text
+    assert textbox_after_first_table
+    assert textbox_outer_spacing is not None
+    assert textbox_outer_spacing.attrib[f"{{{WORD_NAMESPACE['w']}}}before"] == "0"
+    assert textbox_outer_alignment is not None
+    assert textbox_outer_alignment.attrib[f"{{{WORD_NAMESPACE['w']}}}val"] == "left"
+    assert len(inner_textbox_alignments) == 2
+    assert all(
+        alignment.attrib[f"{{{WORD_NAMESPACE['w']}}}val"] == "left"
+        for alignment in inner_textbox_alignments
     )
-    assert any(
-        paragraph.text == "Approved by: Faith Njani"
+    assert not any(
+        paragraph.text in {
+            "Prepared by: Fredrick Kariuki",
+            "Approved by: Faith Njani",
+        }
         for paragraph in document.paragraphs
     )
 
@@ -410,8 +548,8 @@ def test_mobile_report_downloads_mapped_word_document(client):
     assert details.cell(2, 1).text == "KBW781J"
     assert details.cell(2, 2).text == "OMAR HALEN."
     assert details.cell(2, 4).text == "7,500"
-    assert details.cell(2, 9).text == "DM DUNCAN ODHIAMBO"
-    assert details.cell(2, 10).text == "CPL EMASON SAUTET"
+    assert details.cell(2, 9).text == "DM DUNCAN ODHIAMBO / DRIVER JANE DOE"
+    assert details.cell(2, 10).text == "CPL EMASON SAUTET / PC JANE DOE"
 
     charged_over_two = document.tables[7]
     assert len(charged_over_two.rows) == 3
@@ -423,11 +561,37 @@ def test_mobile_report_downloads_mapped_word_document(client):
     assert mileage.cell(1, 1).text == "61,447"
     assert mileage.cell(1, 2).text == "180"
     assert mileage.cell(1, 3).text == "KDS042Z"
+    assert mileage.cell(0, 0).paragraphs[0].runs[0].font.name == "Arial"
+    assert mileage.cell(0, 0).paragraphs[0].runs[0].font.size.pt == 12
+    assert mileage.cell(1, 0).paragraphs[0].runs[0].font.name == "Calibri"
+    assert mileage.cell(1, 0).paragraphs[0].runs[0].font.size.pt == 14
 
-    assert any(
-        "ACTUAL ROUTE:" in paragraph.text
-        and "WESTLANDS-PARKLANDS-RUIRU-JUJA" in paragraph.text
+    actual_route_paragraph = next(
+        paragraph
         for paragraph in document.paragraphs
+        if "ACTUAL ROUTE:" in paragraph.text
+    )
+    danka_paragraph = next(
+        paragraph
+        for paragraph in document.paragraphs
+        if "DANKA PERSONNEL :" in paragraph.text
+    )
+    police_paragraph = next(
+        paragraph
+        for paragraph in document.paragraphs
+        if "POLICE OFFICERS :" in paragraph.text
+    )
+
+    assert "ACTUAL ROUTE:" in actual_route_paragraph.text
+    assert "WESTLANDS-PARKLANDS-RUIRU-JUJA" in actual_route_paragraph.text
+    assert actual_route_paragraph.paragraph_format.space_before.pt == 6
+    assert actual_route_paragraph.paragraph_format.space_after.pt == 6
+    assert danka_paragraph.text == (
+        "DANKA PERSONNEL : DM DUNCAN ODHIAMBO / DRIVER JANE DOE."
+    )
+    assert danka_paragraph.paragraph_format.space_after.pt == 6
+    assert police_paragraph.text == (
+        "POLICE OFFICERS : CPL EMASON SAUTET / PC JANE DOE."
     )
 
     with zipfile.ZipFile(io.BytesIO(download.content)) as archive:

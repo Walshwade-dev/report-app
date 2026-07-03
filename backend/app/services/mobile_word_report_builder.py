@@ -1,24 +1,25 @@
 import io
+import re
 from datetime import datetime
 from typing import Any
+from xml.sax.saxutils import escape
 
 import matplotlib.pyplot as plt
 import pandas as pd
 from docx import Document
 from docx.enum.section import WD_ORIENT, WD_SECTION
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.oxml import OxmlElement
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
+from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt
 
 from app.services.daily_hour_processor import HOURS
 from app.services.mobile_report_processor import summarize_mobile_report
-from app.services.report_layout import enable_field_updates, add_header, add_field, style_footer_run
+from app.services.report_layout import enable_field_updates
 
 
 FONT_NAME = "Arial"
-DATE_FORMAT = "%d-%b-%y"
 DARK_BLUE_LINE = "#1F4E79"
 MAROON_LINE = "#800000"
 LETTER_WIDTH_INCHES = 8.5
@@ -73,6 +74,15 @@ def _upper(value: Any) -> str:
     return text.upper() if text else ""
 
 
+def _mobile_station_label(session) -> str:
+    station = _upper(getattr(session, "station", "JUJA"))
+    station = re.sub(r"\bMOBILE\b", "", station).strip()
+    station = re.sub(r"\s+", " ", station)
+    if not station or station == "NONE":
+        return "JUJA"
+    return station
+
+
 def _date_value(value: Any) -> datetime:
     if isinstance(value, datetime):
         return value
@@ -80,8 +90,17 @@ def _date_value(value: Any) -> datetime:
 
 
 def _display_date(value: Any, *, upper: bool = False) -> str:
-    text = _date_value(value).strftime(DATE_FORMAT)
-    return text.upper() if upper else text
+    date_value = _date_value(value)
+    month_name = date_value.strftime("%B")
+    month_label = month_name if len(month_name) <= 4 else month_name[:3]
+    if upper:
+        month_label = month_label.upper()
+    return f"{date_value.day:02d}-{month_label}-{date_value:%y}"
+
+
+def _vehicle_display_date(value: Any) -> str:
+    date_value = _date_value(value)
+    return f"{date_value.day:02d}-{date_value.strftime('%B')[:3].upper()}-{date_value:%y}"
 
 
 def _format_number(value: Any) -> str:
@@ -145,7 +164,7 @@ def _add_initial_landscape_section(doc: Document, report_date, session):
     _set_section_landscape(section)
     section.header.is_linked_to_previous = False
     section.footer.is_linked_to_previous = False
-    add_header(section)
+    _add_mobile_title_header(section, session)
     _add_mobile_footer(section, report_date, session)
     return section
 
@@ -278,10 +297,17 @@ def _add_bold_line(doc: Document, text: str, *, size: float = 11) -> None:
     run.font.size = Pt(size)
 
 
-def _add_mixed_line(doc: Document, bold_prefix: str, normal_text: str) -> None:
+def _add_mixed_line(
+    doc: Document,
+    bold_prefix: str,
+    normal_text: str,
+    *,
+    space_before: float = 0,
+    space_after: float = 0,
+) -> None:
     paragraph = doc.add_paragraph()
-    paragraph.paragraph_format.space_before = Pt(0)
-    paragraph.paragraph_format.space_after = Pt(0)
+    paragraph.paragraph_format.space_before = Pt(space_before)
+    paragraph.paragraph_format.space_after = Pt(space_after)
     run1 = paragraph.add_run(bold_prefix)
     run1.bold = True
     run1.font.name = FONT_NAME
@@ -334,11 +360,45 @@ def _summary_values(records: pd.DataFrame, session) -> dict[str, int]:
     }
 
 
+def _mobile_hourly_chart_scale(max_value: int) -> tuple[int, int]:
+    if max_value <= 15:
+        upper = max(2, max_value + 2)
+        return upper, 2
+
+    if max_value <= 20:
+        upper = max(2, ((max_value + 1) // 2) * 2)
+        return upper, 2
+
+    return max_value + 5, 5
+
+
+def _style_mobile_hourly_chart_axes(ax) -> None:
+    ax.grid(axis="y", color="#D9D9D9", linewidth=0.8)
+    ax.grid(axis="x", visible=False)
+    ax.tick_params(
+        axis="x",
+        labelrotation=48,
+        labelsize=6,
+        colors="#595959",
+        length=0,
+    )
+    ax.tick_params(axis="y", labelsize=8, colors="#595959", length=0)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_visible(False)
+    ax.spines["bottom"].set_color("#BFBFBF")
+
+
+def _plot_mobile_hourly_chart_lines(ax, weighed: list[int], charged: list[int]) -> None:
+    ax.plot(HOURS, weighed, label="WEIGHED", color=DARK_BLUE_LINE, linewidth=2.2)
+    ax.plot(HOURS, charged, label="CHARGED", color=MAROON_LINE, linewidth=2.2)
+
+
 def _create_mobile_hourly_chart(records: pd.DataFrame) -> io.BytesIO:
     weighed = [_hour_values(records, hour)["weighed"] for hour in HOURS]
     charged = [_hour_values(records, hour)["charged"] for hour in HOURS]
     max_value = max([*weighed, *charged, 1])
-    upper = max(15, ((max_value + 4) // 5) * 5)
+    upper, tick_step = _mobile_hourly_chart_scale(max_value)
 
     buffer = io.BytesIO()
     fig = plt.figure(figsize=(6.3, 4.1), dpi=150)
@@ -347,20 +407,11 @@ def _create_mobile_hourly_chart(records: pd.DataFrame) -> io.BytesIO:
     fig.patch.set_edgecolor("#D9D9D9")
     fig.patch.set_linewidth(1.0)
 
-    ax.plot(HOURS, weighed, label="WEIGHED", color=DARK_BLUE_LINE, linewidth=2.2)
-    ax.plot(HOURS, charged, label="CHARGED & PROHIBITED", color=MAROON_LINE, linewidth=2.2)
+    _plot_mobile_hourly_chart_lines(ax, weighed, charged)
     ax.set_title("DAILY HOURLY DATA", fontsize=13, fontweight="bold", color="#595959")
-    ax.set_xlabel("charged not charged & prohibited", fontsize=8, color="#595959")
     ax.set_ylim(0, upper)
-    ax.set_yticks(range(0, upper + 1, 5))
-    ax.grid(axis="y", color="#D9D9D9", linewidth=0.8)
-    ax.grid(axis="x", visible=False)
-    ax.tick_params(axis="x", labelrotation=48, labelsize=6, colors="#595959")
-    ax.tick_params(axis="y", labelsize=8, colors="#595959")
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.spines["left"].set_color("#BFBFBF")
-    ax.spines["bottom"].set_color("#BFBFBF")
+    ax.set_yticks(range(0, upper + 1, tick_step))
+    _style_mobile_hourly_chart_axes(ax)
     ax.legend(
         fontsize=7,
         loc="center",
@@ -446,14 +497,83 @@ def _add_daily_hour_statistics(doc: Document, records: pd.DataFrame, report_date
 
 
 def _add_prepared_approved(doc: Document, session) -> None:
-    if session.prepared_by:
-        _add_bold_line(doc, f"Prepared by: {session.prepared_by}")
-    if session.confirmed_by:
-        _add_bold_line(doc, f"Approved by: {session.confirmed_by}")
+    prepared_by = str(
+        session.prepared_by
+        or _manual_value(session, "prepared_by", default="")
+    ).strip()
+    approved_by = str(
+        session.confirmed_by
+        or _manual_value(session, "approved_by", "confirmed_by", default="")
+    ).strip()
+
+    if not prepared_by and not approved_by:
+        return
+
+    paragraph = parse_xml(
+        f"""
+        <w:p
+            xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+            xmlns:v="urn:schemas-microsoft-com:vml"
+            xmlns:o="urn:schemas-microsoft-com:office:office">
+            <w:pPr>
+                <w:spacing w:before="0" w:after="120"/>
+                <w:jc w:val="left"/>
+            </w:pPr>
+            <w:r>
+                <w:pict>
+                    <v:shape
+                        id="prepared-approved-textbox"
+                        type="#_x0000_t202"
+                        style="width:260pt;height:42pt"
+                        stroked="t"
+                        strokecolor="#000000"
+                        strokeweight="1pt"
+                        filled="f"
+                        o:insetmode="auto">
+                        <v:textbox inset="6pt,4pt,6pt,4pt">
+                            <w:txbxContent>
+                                <w:p>
+                                    <w:pPr>
+                                        <w:jc w:val="left"/>
+                                    </w:pPr>
+                                    <w:r>
+                                        <w:rPr>
+                                            <w:rFonts w:ascii="{FONT_NAME}" w:hAnsi="{FONT_NAME}"/>
+                                            <w:b/>
+                                            <w:sz w:val="22"/>
+                                        </w:rPr>
+                                        <w:t>Prepared by: {escape(prepared_by)}</w:t>
+                                    </w:r>
+                                </w:p>
+                                <w:p>
+                                    <w:pPr>
+                                        <w:jc w:val="left"/>
+                                    </w:pPr>
+                                    <w:r>
+                                        <w:rPr>
+                                            <w:rFonts w:ascii="{FONT_NAME}" w:hAnsi="{FONT_NAME}"/>
+                                            <w:b/>
+                                            <w:sz w:val="22"/>
+                                        </w:rPr>
+                                        <w:t>Approved by: {escape(approved_by)}</w:t>
+                                    </w:r>
+                                </w:p>
+                            </w:txbxContent>
+                        </v:textbox>
+                    </v:shape>
+                </w:pict>
+            </w:r>
+        </w:p>
+        """
+    )
+    body = doc._body._element
+    insert_index = len(body)
+    if len(body) and body[-1].tag == qn("w:sectPr"):
+        insert_index -= 1
+    body.insert(insert_index, paragraph)
 
 
 def _add_daily_hourly_data(doc: Document, records: pd.DataFrame, session) -> None:
-    _add_report_title(doc, session)
     _add_heading(doc, "2.0 DAILY HOURLY DATA", size=12)
     
     # Borderless layout table
@@ -577,28 +697,8 @@ def _vehicle_row_values(record, session, report_date) -> list[str]:
     danka_staff = _manual_value(session, "danka_staff", "computer_operator")
     police_officers = _manual_value(session, "police_officers", "police")
 
-    danka_shifts = [s.strip() for s in str(danka_staff).split(" / ")] if danka_staff else []
-    police_shifts = [s.strip() for s in str(police_officers).split(" / ")] if police_officers else []
-
-    record_dt = record.get("date_time")
-    danka_staff_val = danka_staff
-    police_officers_val = police_officers
-
-    if hasattr(record_dt, "hour"):
-        hour = record_dt.hour
-        if len(danka_shifts) >= 2:
-            if hour < 12:
-                danka_staff_val = danka_shifts[0]
-            else:
-                danka_staff_val = danka_shifts[1]
-        if len(police_shifts) >= 2:
-            if hour < 12:
-                police_officers_val = police_shifts[0]
-            else:
-                police_officers_val = police_shifts[1]
-
     return [
-        _display_date(report_date, upper=True),
+        _vehicle_display_date(report_date),
         _upper(record["registration"]),
         _upper(record["transporter"]),
         _upper(record["axle"]),
@@ -607,8 +707,8 @@ def _vehicle_row_values(record, session, report_date) -> list[str]:
         _upper(record["origin"]),
         _upper(record["destination"]),
         _upper(record["cargo"]),
-        _upper(danka_staff_val),
-        _upper(police_officers_val),
+        _format_location_people(danka_staff).rstrip("."),
+        _format_location_people(police_officers).rstrip("."),
         _upper(record["remarks"]),
     ]
 
@@ -678,7 +778,7 @@ def _add_vehicle_table(
 
 
 def _add_mileage_table(doc: Document, session) -> None:
-    _add_heading(doc, "LOCATION REPORT")
+    _add_heading(doc, "LOCATION REPORT", size=12)
     table = doc.add_table(rows=4, cols=4)
     widths = [4235, 3980, 2625, 3560]
     _set_fixed_table_layout(table)
@@ -708,42 +808,87 @@ def _add_mileage_table(doc: Document, session) -> None:
     ]
 
     for col, header in enumerate(headers):
-        _set_cell_text(table.cell(0, col), header.upper(), size=11, bold=True, valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM)
+        _set_cell_text(
+            table.cell(0, col),
+            header.upper(),
+            font_name="Arial",
+            size=12,
+            bold=True,
+            valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM,
+        )
         _set_cell_width(table.cell(0, col), widths[col])
-        _set_cell_text(table.cell(1, col), values[col], font_name="Calibri", size=11, valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM)
+        _set_cell_text(
+            table.cell(1, col),
+            values[col],
+            font_name="Calibri",
+            size=14,
+            valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM,
+        )
         _set_cell_width(table.cell(1, col), widths[col])
 
     for col in range(4):
-        _set_cell_text(table.cell(2, col), "", font_name="Calibri", size=11, valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM)
+        _set_cell_text(
+            table.cell(2, col),
+            "",
+            font_name="Calibri",
+            size=14,
+            valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM,
+        )
         _set_cell_width(table.cell(2, col), widths[col])
-    _set_cell_text(table.cell(3, 2), f"{kms} KMS" if kms else "", font_name="Calibri", size=11, bold=True, valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM)
+    _set_cell_text(
+        table.cell(3, 2),
+        f"{kms} KMS" if kms else "",
+        font_name="Calibri",
+        size=14,
+        bold=True,
+        valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM,
+    )
+
+
+def _split_location_people(value: Any) -> list[str]:
+    if value in (None, ""):
+        return []
+
+    text = str(value).replace("\r\n", "\n").replace("\r", "\n")
+    parts = re.split(r"\s*/\s*|\n+", text)
+    return [part.strip().strip(".") for part in parts if part.strip().strip(".")]
+
+
+def _format_location_people(value: Any) -> str:
+    names = [_upper(name) for name in _split_location_people(value)]
+    if not names:
+        return "."
+    return f"{' / '.join(names)}."
+
+
+def _format_route(value: Any) -> str:
+    route = _upper(value).strip(".")
+    return f"{route}." if route else "."
 
 
 def _add_location_notes(doc: Document, session) -> None:
-    route = _upper(_manual_value(session, "route"))
+    route = _manual_value(session, "route")
     danka_staff = _manual_value(session, "danka_staff", "computer_operator")
     police = _manual_value(session, "police_officers", "police")
 
-    danka_shifts = [s.strip() for s in str(danka_staff).split(" / ")] if danka_staff else []
-    police_shifts = [s.strip() for s in str(police).split(" / ")] if police else []
-
-    _add_mixed_line(doc, "ACTUAL ROUTE: \t", f"{route}.")
-
-    if danka_shifts:
-        danka_line_1 = f"{_upper(danka_shifts[0])}."
-        _add_mixed_line(doc, "DANKA PERSONNEL:    ", danka_line_1)
-        for shift in danka_shifts[1:]:
-            _add_mixed_line(doc, f"{' ' * 20}", f"{_upper(shift)}.")
-    else:
-        _add_mixed_line(doc, "DANKA PERSONNEL:    ", ".")
-
-    if police_shifts:
-        police_line_1 = f"{_upper(police_shifts[0])}."
-        _add_mixed_line(doc, "POLICE OFFICERS:        ", police_line_1)
-        for shift in police_shifts[1:]:
-            _add_mixed_line(doc, f"{' ' * 24}", f"{_upper(shift)}.")
-    else:
-        _add_mixed_line(doc, "POLICE OFFICERS:        ", ".")
+    _add_mixed_line(
+        doc,
+        "ACTUAL ROUTE: ",
+        _format_route(route),
+        space_before=6,
+        space_after=6,
+    )
+    _add_mixed_line(
+        doc,
+        "DANKA PERSONNEL : ",
+        _format_location_people(danka_staff),
+        space_after=6,
+    )
+    _add_mixed_line(
+        doc,
+        "POLICE OFFICERS : ",
+        _format_location_people(police),
+    )
 
 
 def _style_footer_run(run) -> None:
@@ -790,11 +935,18 @@ def _add_mobile_footer(section, report_date, session) -> None:
     footer = section.footer
     paragraph = footer.paragraphs[0]
     paragraph.clear()
-    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    printable_width = (
+        section.page_width.inches
+        - section.left_margin.inches
+        - section.right_margin.inches
+    )
+    tab_stops = paragraph.paragraph_format.tab_stops
+    report_label_tab = min(2.75, max(2.25, printable_width * 0.4))
+    tab_stops.add_tab_stop(Inches(report_label_tab), WD_TAB_ALIGNMENT.LEFT)
+    tab_stops.add_tab_stop(Inches(printable_width), WD_TAB_ALIGNMENT.RIGHT)
 
-    station = str(getattr(session, "station", "JUJA")).upper()
-    if not station or station == "NONE":
-        station = "JUJA"
+    station = _mobile_station_label(session)
         
     date_obj = _date_value(report_date)
     day = date_obj.day
@@ -802,9 +954,17 @@ def _add_mobile_footer(section, report_date, session) -> None:
     month_year = date_obj.strftime("%B, %Y").upper()
     date_str = f"{day}{suffix} {month_year}"
 
-    prefix = f"KeNHA/WB/MTCE/43339/2025\t\t{station} MOBILE REPORT 1  {date_str}   \t\tPage "
-    run_prefix = paragraph.add_run(prefix)
-    _style_footer_run(run_prefix)
+    reference = paragraph.add_run("KeNHA/WB/MTCE/4339/2025")
+    _style_footer_run(reference)
+
+    first_tab = paragraph.add_run("\t")
+    _style_footer_run(first_tab)
+
+    report_label = paragraph.add_run(f"{station} MOBILE REPORT 1 {date_str}")
+    _style_footer_run(report_label)
+
+    second_tab = paragraph.add_run("\tPage ")
+    _style_footer_run(second_tab)
 
     _add_footer_field(paragraph, "PAGE")
     run_end = paragraph.add_run(" of ")
@@ -812,14 +972,14 @@ def _add_mobile_footer(section, report_date, session) -> None:
     _add_footer_field(paragraph, "NUMPAGES")
 
 
-def _add_report_title(doc: Document, session) -> None:
-    paragraph = doc.add_paragraph()
+def _add_mobile_title_header(section, session) -> None:
+    header = section.header
+    paragraph = header.paragraphs[0]
+    paragraph.clear()
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     paragraph.paragraph_format.space_after = Pt(12)
     
-    station = str(getattr(session, "station", "JUJA")).upper()
-    if not station or station == "NONE":
-        station = "JUJA"
+    station = _mobile_station_label(session)
         
     run = paragraph.add_run(f"{station} MOBILE DAILY REPORT 1")
     run.bold = True
@@ -850,10 +1010,9 @@ def build_mobile_word_report(session) -> io.BytesIO:
     
     section_0 = doc.sections[0]
     _set_section_portrait(section_0)
-    add_header(section_0)
+    _add_mobile_title_header(section_0, session)
     _add_mobile_footer(section_0, report_date, session)
 
-    _add_report_title(doc, session)
     _add_daily_hour_statistics(doc, records, report_date)
     _add_prepared_approved(doc, session)
 
@@ -861,7 +1020,6 @@ def build_mobile_word_report(session) -> io.BytesIO:
     _add_daily_hourly_data(doc, records, session)
 
     _add_continuous_landscape_section(doc)
-    _add_report_title(doc, session)
     _add_daily_summary(doc, records, session)
 
     _add_continuous_landscape_section(doc)

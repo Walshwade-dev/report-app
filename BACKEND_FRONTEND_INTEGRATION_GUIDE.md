@@ -17,10 +17,10 @@ This document should be updated after every backend implementation step. Each ti
 ### Current Status Snapshot
 
 ```text
-Status date: 2026-06-30
+Status date: 2026-07-03
 Backend framework: FastAPI
 Frontend: Separate Next.js frontend is being integrated with this backend API
-Current backend mode: Section generators plus filesystem-backed report-session API, including mobile/weighbridge register extraction, SMS summary builders, and locked signatory details
+Current backend mode: Section generators plus filesystem-backed report-session API, including mobile/weighbridge register extraction, refined mobile Word report formatting, SMS summary builders, and locked signatory details
 Current integration mode: Frontend-facing upload/preview/build/download/SMS endpoints are wired for implemented sections with restart recovery; local frontend is targeting the local backend at http://127.0.0.1:8000
 ```
 
@@ -55,6 +55,13 @@ Mobile/weighbridge register Excel download endpoint exists in report-session flo
 Mobile/weighbridge register Word download endpoint exists in report-session flow
 Mobile Word report builder exists with portrait first page and landscape continuation sections
 Mobile Word report includes daily/hour tables, chart image, summary, NIL transgression tables, vehicle details, charged-above-2-tonnes table, mileage table, and route/personnel notes
+Mobile Word report title is centered in section headers instead of repeated in the document body
+Mobile Word report footer uses KeNHA/WB/MTCE/4339/2025, centered mobile report/date label, and right-aligned PAGE/NUMPAGES fields
+Mobile Word report daily/hour chart uses dynamic y-axis allowances, horizontal gridlines only, no tick notches, WEIGHED/CHARGED legend labels, and no x-axis caption
+Mobile Word report daily/hour date keeps four-letter month names while vehicle detail dates use three-letter month names
+Mobile Word report prepared/approved values render in a left-aligned textbox below the daily/hour statistics table
+Mobile Word report vehicle detail rows keep full Danka staff and police officer lists in each row cell separated by slashes
+Mobile Word report Location Report table and route/personnel/officer notes have refined font, spacing, and single-line slash-separated formatting
 Mobile Excel workbook chart styling matches the reference line graph scale, axis placement, line width, rounded line caps, and non-smoothed series
 Mobile Excel workbook chart and chart-border footprint are narrowed by roughly one quarter from the previous generated layout
 Mobile Excel workbook chart uses dark blue and maroon line colors instead of light blue and orange
@@ -160,6 +167,7 @@ Use this section as the running project history.
 2026-05-14 - Narrowed the mobile Excel chart and Notes block by about one quarter, changed graph series colors to dark blue/maroon, and made Notes rows left-aligned rich text with bold keys and equals signs.
 2026-05-14 - Added mobile Word report generation and download endpoint using uploaded mobile register data and mobile manual inputs.
 2026-06-19 - Refined mobile Excel report styling: updated column O:X width to 0.75", rotated chart x-axis 45 degrees, updated note block merging and rich text bolding, enforced black text, and applied a lighter grey fill (#F2F2F2) with adjusted borders for table headers. Updated the generated file name to use the .xls extension and matched the format JUJA WEIGHBRIDGE MOBILE REPORT 1 19.06.26.xls.
+2026-07-03 - Refined mobile Word report output: moved repeated mobile report title to centered headers, restored formatted footer with reference/date/page fields, tuned Section 2 chart scale/labels/axis styling, added prepared/approved textbox, refined Location Report formatting, adjusted mobile dates, and kept full Danka/police values in vehicle detail rows.
 ```
 
 ### Latest Backend Implementation Step
@@ -167,36 +175,34 @@ Use this section as the running project history.
 ```text
 Files changed:
 - backend/app/services/mobile_word_report_builder.py
-- backend/app/routes/reports.py
 - backend/tests/test_upload_build_flow.py
 - BACKEND_FRONTEND_INTEGRATION_GUIDE.md
 
-Behavior added:
-- GET /api/report-sessions/{report_id}/download-mobile-word-report builds and returns a mobile Word report.
-- Serialized report sessions now include `mobile_word_report.status` and `mobile_word_report.download_url` when mobile_report data is ready.
-- The mobile Word report creates 10 DOCX sections: the first is portrait and the remaining sections are landscape.
-- The generated document contains nine tables matching the sample flow: daily/hour statistics, hourly data, daily summary, three NIL transgression tables, all vehicle details, charged-above-2-tonnes details, and mileage/location.
-- The report embeds a generated daily hourly line chart image from uploaded mobile register hourly counts.
-- Vehicle detail rows are mapped from normalized mobile register records.
-- Mileage, route, Danka personnel, police officer, prepared by, and approved by fields come from report-session manual inputs.
+Behavior refined:
+- Mobile Word report title now renders in the section header as centered `JUJA MOBILE DAILY REPORT 1` style text, instead of being repeated as body content.
+- Mobile Word footer now uses `KeNHA/WB/MTCE/4339/2025`, the centered `{STATION} MOBILE REPORT 1 {DATE}` label, and right-aligned `Page {PAGE} of {NUMPAGES}` Word fields.
+- Section 2 daily/hour chart now uses y-axis allowances of `n + 2` for values up to 15 and `n + 5` for values above 20, while preserving the configured tick intervals.
+- Section 2 chart legend labels are `WEIGHED` and `CHARGED`; the previous grey x-axis caption is removed, tick notches are hidden, and only horizontal gridlines remain.
+- Section 1 daily/hour dates keep four-letter month names such as `JUNE`; Section 6 vehicle detail dates use three-letter month names such as `JUN`.
+- Prepared by / Approved by values now render in a left-aligned Word textbox immediately below the daily/hour statistics table.
+- Section 6 vehicle detail Danka staff and police officer cells include the full slash-separated manual input lists in every row.
+- Location Report table headers use Arial 12pt, data cells use Calibri 14pt, and Actual Route / Danka Personnel / Police Officers notes use the refined spacing and slash-separated single-line formatting.
 
 Rationale:
-- The frontend needs a stable DOCX endpoint for the mobile report, separate from the mobile Excel workbook and from the main static weighbridge final report.
-- Keeping the mobile Word builder separate lets the report preserve the sample's portrait-first-page and landscape continuation layout without affecting existing final report generation.
+- These refinements align the generated mobile Word report with the latest visual review feedback without changing API routes or the upload/build/download flow.
+- The changes are isolated to mobile Word rendering and its API regression coverage.
 
 Tests and verification:
-- Added API coverage for /download-mobile-word-report.
-- The mobile Word test verifies DOCX MIME type, 10 sections, portrait first section, landscape remaining sections, nine tables, embedded chart image, mapped hourly values, mapped vehicle details, charged-above-2-tonnes filtering, mileage fields, and route/personnel notes.
-- `backend/venv/bin/python -m compileall backend/app` passes.
-- `PYTHONPATH=backend MPLCONFIGDIR=/tmp/matplotlib-cache backend/venv/bin/python -m pytest backend/tests -vv` passes.
+- Expanded API coverage for `/download-mobile-word-report` to verify header title placement, footer text/tab stops, prepared/approved textbox XML, chart scale/axis/legend behavior, mobile date formatting, vehicle detail staff/officer mapping, and Location Report formatting.
+- `PYTHONPATH=backend MPLCONFIGDIR=/tmp/matplotlib-cache backend/.venv/bin/python -m pytest backend/tests -q` passes.
 
 Limitations:
 - Mobile report extraction is available to the API and session store, and separate mobile Excel and Word reports can be downloaded.
 - The current summary classifies overloads from non-empty Excess or positive Excess [KG]; any station-specific action mapping can be added once those business rules are confirmed.
-- The mobile Word report now follows the sample structure and data mapping. Further polish can tune exact row heights, margins, and typography after visual review in Word or LibreOffice.
+- Further polish can tune exact row heights, margins, and typography after visual review in Word or LibreOffice.
 
 Next recommended task:
-- Point the frontend mobile Word download button/link at /api/report-sessions/{report_id}/download-mobile-word-report and visually inspect a downloaded sample.
+- Visually inspect a downloaded mobile Word sample in Word or LibreOffice after frontend upload/manual-input flow testing.
 ```
 
 ## Mobile Word Report Sample Analysis
@@ -240,7 +246,7 @@ The sample document body is ordered like this:
 ```text
 1. DAILY AND HOURLY STATISTICS
    - Table: 27 rows x 6 columns
-   - Prepared by / Approved by lines
+   - Prepared by / Approved by textbox below the table
    - Portrait section
 
 2. DAILY HOURLY DATA
@@ -284,8 +290,8 @@ The sample document body is ordered like this:
 
 10. Route / personnel / police officer notes
    - ACTUAL ROUTE paragraph
-   - DANKA PERSONNEL paragraph(s)
-   - POLICE OFFICERS paragraph(s)
+   - DANKA PERSONNEL single-line slash-separated paragraph
+   - POLICE OFFICERS single-line slash-separated paragraph
    - Landscape section
 ```
 
@@ -321,8 +327,8 @@ remarks == "WARNED" -> Warned Trucks counts
 Manual mobile inputs should map as follows:
 
 ```text
-prepared_by -> Prepared by line
-confirmed_by or approved_by -> Approved by line
+prepared_by -> Prepared by textbox below daily/hour statistics table
+confirmed_by or approved_by -> Approved by textbox below daily/hour statistics table
 mobile_report.danka_staff -> COMPUTER OPERATOR (DANKA STAFF), DANKA PERSONNEL notes
 mobile_report.police_officers -> OFFICER, POLICE OFFICERS notes
 mobile_report.route -> ACTUAL ROUTE notes
@@ -368,6 +374,19 @@ Headers:
 Rows:
 - 24 hourly rows
 - Total row
+```
+
+Daily hourly data chart:
+
+```text
+Legend labels:
+- WEIGHED
+- CHARGED
+
+Axis notes:
+- Y-axis uses configured tick spacing with a small upper allowance so the line does not touch the chart ceiling
+- Horizontal gridlines are shown
+- Vertical y-axis line, tick notches, and grey x-axis caption are hidden
 ```
 
 Daily summary table:
