@@ -9,8 +9,10 @@ from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.cell.text import InlineFont
 from openpyxl.chart import LineChart, Reference
 from openpyxl.chart.label import DataLabelList
+from openpyxl.chart.shapes import GraphicalProperties
 from openpyxl.chart.text import RichText
 from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, TwoCellAnchor
+from openpyxl.drawing.line import LineProperties
 from openpyxl.drawing.text import CharacterProperties, Paragraph, ParagraphProperties, RichTextProperties
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.worksheet.worksheet import Worksheet
@@ -483,7 +485,7 @@ def _setup_detail_sheet(ws: Worksheet, title: str) -> None:
         "H10": "ORIGIN",
         "I10": "DESTIN.",
         "J10": "CARGO",
-        "K10": "COMPUTER OPERATER \n(DANKA STAFF)",
+        "K10": "COMPUTER OPERATOR \n(DANKA STAFF)",
         "L10": "OFFICERS",
         "M10": "REMARKS",
         "N10": "ROUTE",
@@ -601,6 +603,7 @@ def _add_hourly_summary_chart(ws: Worksheet) -> None:
     chart.y_axis.number_format = "General"
     chart.x_axis.textProperties = _chart_axis_text_properties()
     chart.y_axis.textProperties = _chart_axis_text_properties()
+    chart.y_axis.spPr = GraphicalProperties(ln=LineProperties(noFill=True))
     chart.x_axis.majorTickMark = "none"
     chart.x_axis.minorTickMark = "none"
     chart.y_axis.majorTickMark = "none"
@@ -629,16 +632,11 @@ def _write_manual_header(
     police_officers = _manual_value(session, "police_officers", "police")
     mileage_start = _plain_int(_manual_value(session, "mileage_start"))
     mileage_end = _plain_int(_manual_value(session, "mileage_end"))
-    danka_shifts = [s.strip() for s in str(danka_staff).split(" / ")] if danka_staff else []
-    police_shifts = [s.strip() for s in str(police_officers).split(" / ")] if police_officers else []
-
-    main_danka = danka_shifts[0] if len(danka_shifts) > 0 else danka_staff
-    main_police = police_shifts[0] if len(police_shifts) > 0 else police_officers
 
     _set_detail_center_cell(ws, "B6", report_date, number_format=DATE_FORMAT)
-    _set_detail_text_cell(ws, "E6", _upper(main_danka))
+    _set_detail_text_cell(ws, "E6", _upper(danka_staff))
     _set_detail_text_cell(ws, "E7", "")
-    _set_detail_text_cell(ws, "G6", _upper(main_police), vertical=None)
+    _set_detail_text_cell(ws, "G6", _upper(police_officers), vertical=None)
     _set_detail_text_cell(ws, "G7", "", vertical=None)
     _set_detail_center_cell(ws, "I6", int(summary["total_trucks_weighed"]), border=MEDIUM_BORDER, size=10)
     _set_detail_center_cell(ws, "J6", int(summary["charged_gvw_axle_trucks"]), border=MEDIUM_BORDER, size=10)
@@ -678,30 +676,13 @@ def _write_detail_rows(
     )
     police_officers = _manual_value(session, "police_officers", "police")
 
-    danka_shifts = [s.strip() for s in str(danka_staff).split(" / ")] if danka_staff else []
-    police_shifts = [s.strip() for s in str(police_officers).split(" / ")] if police_officers else []
-
     for offset, (_, record) in enumerate(records.iterrows()):
         row = 11 + offset
         gvw_excess = record["gvw_difference_kg"] if record["gvw_difference_kg"] > 0 else "-"
         axle_excess = record["excess_kg"] if record["excess_kg"] > 0 else "-"
 
-        record_dt = record.get("date_time")
         danka_staff_val = danka_staff
         police_officers_val = police_officers
-
-        if hasattr(record_dt, "hour"):
-            hour = record_dt.hour
-            if len(danka_shifts) >= 2:
-                if hour < 12:
-                    danka_staff_val = danka_shifts[0]
-                else:
-                    danka_staff_val = danka_shifts[1]
-            if len(police_shifts) >= 2:
-                if hour < 12:
-                    police_officers_val = police_shifts[0]
-                else:
-                    police_officers_val = police_shifts[1]
 
         values = {
             f"B{row}": report_date,

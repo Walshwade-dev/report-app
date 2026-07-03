@@ -199,8 +199,8 @@ def test_mobile_report_downloads_mapped_excel_workbook(client):
             "extra": {
                 "mobile_report": {
                     "route": "westlands-parklands-ruiru-juja",
-                    "danka_staff": "dm duncan odhiambo",
-                    "police_officers": "cpl emason sautet",
+                    "danka_staff": "dm duncan odhiambo / driver jane doe",
+                    "police_officers": "cpl emason sautet / pc jane doe",
                     "mobile_vehicle": "kds042z",
                     "mileage_start": 61267,
                     "mileage_end": 61447,
@@ -246,6 +246,8 @@ def test_mobile_report_downloads_mapped_excel_workbook(client):
     assert detail["I6"].value == 4
     assert detail["J6"].value == 1
     assert detail["J7"].value == 0
+    assert detail["E6"].value == "DM DUNCAN ODHIAMBO / DRIVER JANE DOE"
+    assert detail["G6"].value == "CPL EMASON SAUTET / PC JANE DOE"
     assert detail["K6"].value == 61267
     assert detail["L6"].value == 61447
     assert detail["M6"].value == "=L6-K6"
@@ -255,8 +257,11 @@ def test_mobile_report_downloads_mapped_excel_workbook(client):
     assert detail["D11"].value == "OMAR HALEN."
     assert detail["F11"].value == 7500
     assert detail["G11"].value == 7500
+    assert detail["K11"].value == "DM DUNCAN ODHIAMBO / DRIVER JANE DOE"
+    assert detail["L11"].value == "CPL EMASON SAUTET / PC JANE DOE"
     assert detail["M11"].value == "CHARGED"
     assert detail["N11"].value == "WESTLANDS-PARKLANDS-RUIRU-JUJA"
+    assert detail["K10"].value == "COMPUTER OPERATOR \n(DANKA STAFF)"
     assert detail["B11"].number_format == "dd-mmm-yy"
     assert detail["B5"].fill.fill_type is None
     assert detail["B10"].fill.fill_type is None
@@ -335,6 +340,11 @@ def test_mobile_report_downloads_mapped_excel_workbook(client):
         element = data_labels.find(f"c:{tag}", CHART_NAMESPACE)
         assert element is not None
         assert element.attrib["val"] == "0"
+    y_axis_no_fill = chart_xml.find(
+        ".//c:valAx/c:spPr/a:ln/a:noFill",
+        CHART_NAMESPACE,
+    )
+    assert y_axis_no_fill is not None
     category_axis_text = chart_xml.find(".//c:catAx/c:txPr", CHART_NAMESPACE)
     assert category_axis_text is not None
     body_pr = category_axis_text.find("a:bodyPr", CHART_NAMESPACE)
