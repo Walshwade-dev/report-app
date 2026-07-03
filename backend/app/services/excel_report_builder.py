@@ -10,6 +10,7 @@ from openpyxl.chart.axis import ChartLines
 from openpyxl.chart.shapes import GraphicalProperties
 from openpyxl.chart.label import DataLabelList
 from openpyxl.chart.text import RichText
+from openpyxl.drawing.line import LineProperties
 from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, TwoCellAnchor
 from openpyxl.drawing.text import (
     CharacterProperties,
@@ -676,6 +677,18 @@ def _chart_axis_text_properties(rot: int = -3600000) -> RichText:
     )
 
 
+def _chart_height_cm_for_rows(ws: Worksheet, start_row: int, end_row: int) -> float:
+    total_points = sum(ws.row_dimensions[row].height or 15.0 for row in range(start_row, end_row + 1))
+    return total_points * 2.54 / 72
+
+
+def _chart_anchor_for_range(start_col: int, start_row: int, end_col: int, end_row: int) -> TwoCellAnchor:
+    return TwoCellAnchor(
+        _from=AnchorMarker(col=start_col - 1, row=start_row - 1),
+        to=AnchorMarker(col=end_col, row=end_row),
+    )
+
+
 def _add_daily_hour_chart(ws: Worksheet) -> None:
     chart = LineChart()
     chart.title = "Graph on Trucks Weighed per Hour\n\n\n\n"
@@ -694,7 +707,7 @@ def _add_daily_hour_chart(ws: Worksheet) -> None:
     chart.y_axis.txPr = _chart_axis_text_properties(0)
 
     # Calculate dynamic max value from the worksheet data rows 6-29
-    max_val = 300
+    max_val = 200
     for r in range(6, 30):
         try:
             d_val = float(ws.cell(row=r, column=4).value or 0)  # Col D
@@ -717,6 +730,7 @@ def _add_daily_hour_chart(ws: Worksheet) -> None:
     chart.y_axis.majorGridlines.graphicalProperties = GraphicalProperties()
     chart.y_axis.majorGridlines.graphicalProperties.line.solidFill = "E2E8F0"
     chart.y_axis.majorGridlines.graphicalProperties.line.width = 12700
+    chart.y_axis.spPr = GraphicalProperties(ln=LineProperties(noFill=True))
     chart.legend.position = "b"
     chart.dataLabels = DataLabelList()
     chart.dataLabels.showLegendKey = False
@@ -738,11 +752,10 @@ def _add_daily_hour_chart(ws: Worksheet) -> None:
         series.graphicalProperties.line.width = 38100  # Bolder line width (3.0pt instead of 2.25pt/28575)
 
     chart.roundedCorners = False
-    chart.x_axis.title = "Time"
     chart.width = 16.0
-    chart.height = 9.5
-    chart.anchor = "T31"
-    ws.add_chart(chart, "T31")
+    chart.height = _chart_height_cm_for_rows(ws, 31, 47)
+    chart.anchor = _chart_anchor_for_range(20, 31, 25, 47)
+    ws.add_chart(chart)
 
 
 def _write_reference_markers(ws: Worksheet) -> None:

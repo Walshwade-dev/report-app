@@ -1,6 +1,7 @@
 import io
 import os
 import zipfile
+from datetime import datetime
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -884,9 +885,13 @@ def test_upload_fixtures_download_excel_report(client, temp_store):
     assert "I34:I35" in {str(merged) for merged in summary.merged_cells.ranges}
     assert "J34:J35" in {str(merged) for merged in summary.merged_cells.ranges}
     assert summary._charts[0].y_axis.scaling.min == 0
-    assert summary._charts[0].y_axis.scaling.max == 300
+    assert summary._charts[0].y_axis.scaling.max == 200
     assert summary._charts[0].y_axis.majorUnit == 50
     assert summary._charts[0].x_axis.crosses == "min"
+    assert summary._charts[0].x_axis.title is None
+    assert summary._charts[0].y_axis.spPr.ln.noFill is True
+    assert summary._charts[0].anchor._from.row == 30
+    assert summary._charts[0].anchor.to.row == 47
     assert all(series.smooth is False for series in summary._charts[0].series)
     assert [
         series.graphicalProperties.line.solidFill.srgbClr
@@ -1033,6 +1038,88 @@ def test_dashboard_mobile_kpis_filter_and_replace_duplicate_reports(client, temp
     assert mobile_2_payload["mobile"]["warned"] == 1
     assert mobile_2_payload["mobile"]["charged"] == 1
     assert mobile_2_payload["mobile"]["selected"]["bound"] == "mobile_2"
+
+
+def test_dms_performance_uses_latest_mobile_reports_and_staff_inputs(client, temp_store):
+    report_date = datetime.now().strftime("%Y-%m-%d")
+
+    def add_mobile_session(
+        bound: str,
+        staff: str,
+        *,
+        weighed: int,
+        charged: int,
+        modified_at: float,
+    ) -> None:
+        session = temp_store.create(
+            report_date=report_date,
+            station="Juja mobile",
+            bound=bound,
+            weighbridge_name="Juja mobile",
+        )
+        temp_store.update_manual_inputs(
+            session.report_id,
+            extra={"mobile_report": {"danka_staff": staff}},
+        )
+        temp_store.set_section_ready(
+            session.report_id,
+            "mobile_report",
+            pd.DataFrame({"ticket_no": [session.report_id]}),
+            extra={
+                "summary": {
+                    "total_trucks_weighed": weighed,
+                    "charged_trucks": charged,
+                }
+            },
+        )
+        os.utime(
+            temp_store._session_metadata_path(session.report_id),
+            (modified_at, modified_at),
+        )
+
+    add_mobile_session(
+        "Mobile 1",
+        "dm duncan odhiambo / driver jane doe",
+        weighed=10,
+        charged=1,
+        modified_at=1000,
+    )
+    add_mobile_session(
+        "Mobile 1",
+        "dm duncan odhiambo / driver jane doe",
+        weighed=25,
+        charged=3,
+        modified_at=2000,
+    )
+    add_mobile_session(
+        "Mobile 2",
+        "dm elizabeth chari",
+        weighed=7,
+        charged=2,
+        modified_at=1500,
+    )
+
+    response = client.get("/api/report-sessions/analytics/dms-performance")
+
+    assert response.status_code == 200
+    payload = response.json()
+    rows_by_name = {row["name"]: row for row in payload["rows"]}
+
+    assert payload["reports"] == 2
+    assert [row["name"] for row in payload["rows"][:2]] == [
+        "DM DUNCAN ODHIAMBO",
+        "DM ELIZABETH CHARI",
+    ]
+    assert rows_by_name["DM DUNCAN ODHIAMBO"]["weighed"] == 25
+    assert rows_by_name["DM DUNCAN ODHIAMBO"]["charged"] == 3
+    assert rows_by_name["DM DUNCAN ODHIAMBO"]["chargeRate"] == 12.0
+    assert rows_by_name["DM DUNCAN ODHIAMBO"]["monthCharged"] == 3
+    assert rows_by_name["DM DUNCAN ODHIAMBO"]["team"] == "DM DUNCAN ODHIAMBO / DRIVER JANE DOE"
+    assert rows_by_name["DM DUNCAN ODHIAMBO"]["drivers"] == ["DRIVER JANE DOE"]
+    assert "DRIVER JANE DOE" not in rows_by_name
+    assert rows_by_name["DM ELIZABETH CHARI"]["weighed"] == 7
+    assert rows_by_name["DM ELIZABETH CHARI"]["charged"] == 2
+    assert rows_by_name["DM ELIZABETH CHARI"]["chargeRate"] == 28.6
 
 
 def test_dashboard_static_kpis_filter_bounds_and_replace_duplicates(client, temp_store):

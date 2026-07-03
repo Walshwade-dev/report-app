@@ -376,6 +376,47 @@ def mobile_report_label(slot: str) -> str:
     return "Mobile 2" if slot == "mobile_2" else "Mobile 1"
 
 
+def mobile_report_manual_inputs(session: ReportSession) -> dict:
+    mobile_inputs = session.manual_inputs.get("mobile_report")
+    if isinstance(mobile_inputs, dict):
+        return mobile_inputs
+
+    extra_inputs = session.manual_inputs.get("extra")
+    if isinstance(extra_inputs, dict) and isinstance(extra_inputs.get("mobile_report"), dict):
+        return extra_inputs["mobile_report"]
+
+    return {}
+
+
+def danka_staff_names(session: ReportSession) -> list[str]:
+    staff_value = str(mobile_report_manual_inputs(session).get("danka_staff") or "").strip()
+    if not staff_value:
+        return []
+
+    names = []
+    for part in staff_value.replace("\\", "/").split("/"):
+        cleaned = " ".join(part.strip().split())
+        if cleaned:
+            names.append(cleaned.upper())
+
+    return names
+
+
+def danka_staff_team(session: ReportSession) -> dict | None:
+    names = danka_staff_names(session)
+    if not names:
+        return None
+
+    dm_name = next((name for name in names if "DM" in name.split()), names[0])
+    drivers = [name for name in names if name != dm_name]
+
+    return {
+        "dm": dm_name,
+        "drivers": drivers,
+        "team": " / ".join([dm_name, *drivers]),
+    }
+
+
 def normalize_mobile_filter(value: str | None) -> str | None:
     if value is None:
         return None
@@ -712,6 +753,90 @@ async def get_analytics_details():
         "trafficData": traffic_data,
         "courtCasesData": court_cases_data,
         "crossStationData": cross_station_data
+    }
+
+
+@router.get("/report-sessions/analytics/dms-performance")
+async def get_dms_performance():
+    latest_mobile_sessions: dict[tuple[str, str, str], tuple[ReportSession, float]] = {}
+
+    for metadata_path in sorted(report_session_store.sessions_dir.glob("*.json")):
+        try:
+            session = report_session_store.get(metadata_path.stem)
+            if not session or session.sections.get("mobile_report", {}).get("status") != "ready":
+                continue
+
+            station_key = (
+                classify_station(session.station or session.weighbridge_name)
+                or (session.station or session.weighbridge_name or "").strip().lower()
+            )
+            key = (session.report_date, station_key, mobile_report_slot(session.bound))
+            modified_at = metadata_path.stat().st_mtime
+            previous = latest_mobile_sessions.get(key)
+            if previous is None or modified_at >= previous[1]:
+                latest_mobile_sessions[key] = (session, modified_at)
+        except Exception:
+            pass
+
+    now = datetime.now()
+    stats: dict[str, dict] = {}
+    report_count = 0
+
+    for session, _ in latest_mobile_sessions.values():
+        team = danka_staff_team(session)
+        if not team:
+            continue
+
+        summary = session.sections.get("mobile_report", {}).get("summary", {})
+        weighed = int(summary.get("total_trucks_weighed", 0) or 0)
+        charged = int(summary.get("charged_trucks", 0) or 0)
+        report_count += 1
+
+        is_current_month = False
+        try:
+            report_date = datetime.strptime(session.report_date, "%Y-%m-%d")
+            is_current_month = report_date.year == now.year and report_date.month == now.month
+        except Exception:
+            pass
+
+        dm_name = team["dm"]
+        row = stats.setdefault(
+            dm_name,
+            {
+                "name": dm_name,
+                "surname": dm_name.split()[-1],
+                "team": team["team"],
+                "drivers": [],
+                "weighed": 0,
+                "charged": 0,
+                "monthCharged": 0,
+                "reports": 0,
+            },
+        )
+        for driver in team["drivers"]:
+            if driver not in row["drivers"]:
+                row["drivers"].append(driver)
+        row["team"] = " / ".join([dm_name, *row["drivers"]])
+        row["weighed"] += weighed
+        row["charged"] += charged
+        row["reports"] += 1
+        if is_current_month:
+            row["monthCharged"] += charged
+
+    for row in stats.values():
+        row["chargeRate"] = round((row["charged"] / row["weighed"] * 100), 1) if row["weighed"] else 0
+
+    rows = sorted(
+        stats.values(),
+        key=lambda item: (item["charged"], item["chargeRate"], item["weighed"], item["name"]),
+        reverse=True,
+    )
+
+    return {
+        "rows": rows,
+        "totalCharged": sum(row["charged"] for row in rows),
+        "totalWeighed": sum(row["weighed"] for row in rows),
+        "reports": report_count,
     }
 
 
