@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16
+    container_name: report-app-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: report_app_db
+      POSTGRES_USER: report_app_user
+      POSTGRES_PASSWORD: report_app_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - report_app_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U report_app_user -d report_app_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  report_app_postgres_data:

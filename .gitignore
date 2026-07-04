@@ -1,6 +1,59 @@
+# Python virtual environments
+.venv/
+venv/
+backend/.venv/
 backend/venv/
-backend/app/storage/
+
+# Python cache and tooling
 __pycache__/
-*.pyc
+**/__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+backend/.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment files
+.env
+backend/.env
+.env.*
+!.env.example
+!backend/.env.example
+
+# Local app storage and generated artifacts
+backend/app/storage/
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*.log
 *.docx
+*.xlsx
+*.xls
+*.pkl
+*.sqlite3
+*.db
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
 .~lock.*
+
+# Environment files
+.env
+backend/.env
+
+# Virtual environments
+.venv/
+
+# Python/test caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Logs
+*.log

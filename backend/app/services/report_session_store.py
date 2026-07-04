@@ -3,6 +3,7 @@ import os
 import shutil
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -13,6 +14,7 @@ from app.services.daily_summary_processor import (
     DailySummaryMissingSourceError,
     build_daily_summary_from_session,
 )
+from app.repositories.report_repository import ReportRepository
 from app.services.traffic_census_processor import normalize_traffic_census_input
 from app.services.transgressions_processor import normalize_transgressions_input
 
@@ -54,6 +56,14 @@ def _json_safe_value(value: Any) -> Any:
     return value
 
 
+STATIC_REQUIRED_UPLOADS = {
+    "daily_hour",
+    "wideload",
+    "impounded_prohibited",
+    "overloaded",
+}
+
+
 @dataclass
 class ReportSession:
     report_id: str
@@ -80,6 +90,7 @@ class ReportSessionStore:
         self.previews_dir = storage_root / "previews"
         self.final_reports_dir = storage_root / "final_reports"
         self._sessions: dict[str, ReportSession] = {}
+        self.repository = ReportRepository()
         self._ensure_storage_dirs()
 
     def _ensure_storage_dirs(self) -> None:
@@ -124,6 +135,13 @@ class ReportSessionStore:
 
         for path in paths:
             self._remove_storage_path(path)
+
+    def delete(self, report_id: str) -> bool:
+        existed = self.get(report_id) is not None
+        self._remove_session_artifacts(report_id)
+        self._sessions.pop(report_id, None)
+        self.repository.delete_report(report_id)
+        return existed
 
     def cleanup_expired_sessions(
         self,
@@ -191,20 +209,17 @@ class ReportSessionStore:
         }
 
     def _save_metadata(self, session: ReportSession) -> None:
+        payload = self._metadata_payload(session)
         self._write_json_atomic(
             self._session_metadata_path(session.report_id),
-            self._metadata_payload(session),
+            payload,
         )
+        self.repository.save_session_snapshot(payload)
 
-    def _load_session_from_disk(self, report_id: str) -> ReportSession | None:
-        metadata_path = self._session_metadata_path(report_id)
-
-        if not metadata_path.exists():
-            return None
-
-        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    def _session_from_metadata_payload(self, payload: dict[str, Any]) -> ReportSession:
+        report_id = payload["report_id"]
         session = ReportSession(
-            report_id=payload["report_id"],
+            report_id=report_id,
             report_date=payload["report_date"],
             station=payload["station"],
             bound=payload["bound"],
@@ -235,6 +250,19 @@ class ReportSessionStore:
 
         self._sessions[report_id] = session
         return session
+
+    def _load_session_from_disk(self, report_id: str) -> ReportSession | None:
+        metadata_path = self._session_metadata_path(report_id)
+
+        if metadata_path.exists():
+            payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+        else:
+            payload = self.repository.load_session_snapshot(report_id)
+
+        if not payload:
+            return None
+
+        return self._session_from_metadata_payload(payload)
 
     def _invalidate_generated_outputs(self, session: ReportSession) -> None:
         preview_dir = self._preview_session_dir(session.report_id)
@@ -294,13 +322,20 @@ class ReportSessionStore:
     def update_metadata(
         self,
         report_id: str,
+        report_date: str | None = None,
         station: str | None = None,
         bound: str | None = None,
         weighbridge_name: str | None = None,
+        prepared_by: str | None = None,
+        confirmed_by: str | None = None,
     ) -> ReportSession:
         session = self.require(report_id)
 
         changed = False
+
+        if report_date is not None and report_date != session.report_date:
+            session.report_date = report_date
+            changed = True
 
         if station is not None and station != session.station:
             session.station = station
@@ -315,6 +350,14 @@ class ReportSessionStore:
             and weighbridge_name != session.weighbridge_name
         ):
             session.weighbridge_name = weighbridge_name
+            changed = True
+
+        if prepared_by is not None and prepared_by != session.prepared_by:
+            session.prepared_by = prepared_by
+            changed = True
+
+        if confirmed_by is not None and confirmed_by != session.confirmed_by:
+            session.confirmed_by = confirmed_by
             changed = True
 
         if changed:
@@ -334,12 +377,166 @@ class ReportSessionStore:
 
         return session
 
+    def list_report_ids(self) -> list[str]:
+        file_ids = [path.stem for path in self.sessions_dir.glob("*.json")]
+        database_ids = self.repository.list_report_ids()
+        return list(dict.fromkeys([*database_ids, *sorted(file_ids)]))
+
+    def _session_metadata_mtime(self, report_id: str) -> datetime:
+        metadata_path = self._session_metadata_path(report_id)
+        if metadata_path.exists():
+            return datetime.fromtimestamp(metadata_path.stat().st_mtime, tz=timezone.utc)
+        return datetime.now(timezone.utc)
+
+    def _session_report_type(self, session: ReportSession) -> str:
+        station = f"{session.station or ''} {session.weighbridge_name or ''}".lower()
+        bound = (session.bound or "").lower()
+        mobile_ready = session.sections.get("mobile_report", {}).get("status") == "ready"
+
+        if mobile_ready or "mobile" in station or "mobile" in bound:
+            return "mobile_weighbridge"
+
+        return "static_weighbridge"
+
+    def _session_title(self, session: ReportSession) -> str:
+        return " ".join(
+            part
+            for part in [
+                session.weighbridge_name or session.station,
+                session.bound,
+                session.report_date,
+            ]
+            if part
+        )
+
+    def report_history_summary(self, report_id: str) -> dict[str, Any] | None:
+        database_summary = self.repository.get_report_summary(report_id)
+        if database_summary:
+            return database_summary
+
+        session = self.get(report_id)
+        if not session:
+            return None
+
+        upload_count = sum(
+            1
+            for section in STATIC_REQUIRED_UPLOADS
+            if session.sections.get(section, {}).get("status") == "ready"
+        )
+        required_uploads_completed = upload_count == len(STATIC_REQUIRED_UPLOADS)
+        manual_inputs_completed = bool(session.manual_inputs)
+        final_report_path = self._final_report_path(report_id)
+        has_final_report = (
+            session.final_report_status == "ready" and final_report_path.exists()
+        )
+        updated_at = self._session_metadata_mtime(report_id)
+
+        return {
+            "report_id": report_id,
+            "title": self._session_title(session),
+            "report_type": self._session_report_type(session),
+            "weighbridge_name": session.weighbridge_name or session.station,
+            "bound_name": session.bound,
+            "status": {
+                "ready": "completed",
+                "error": "failed",
+                "not_built": "draft",
+            }.get(session.final_report_status, session.final_report_status),
+            "created_at": updated_at,
+            "updated_at": updated_at,
+            "completed_at": updated_at if has_final_report else None,
+            "has_final_report": has_final_report,
+            "upload_count": upload_count,
+            "required_uploads_completed": required_uploads_completed,
+            "manual_inputs_completed": manual_inputs_completed,
+            "download_available": has_final_report,
+        }
+
+    def list_report_history(
+        self,
+        status: str | None = None,
+        report_type: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+        search: str | None = None,
+    ) -> list[dict[str, Any]]:
+        database_summaries = self.repository.list_reports(
+            status=status,
+            report_type=report_type,
+            limit=10_000,
+            offset=0,
+            search=search,
+        )
+        summaries_by_id = {
+            summary["report_id"]: summary for summary in database_summaries
+        }
+
+        summaries = list(database_summaries)
+        for report_id in self.list_report_ids():
+            if report_id in summaries_by_id:
+                continue
+
+            summary = self.report_history_summary(report_id)
+            if not summary:
+                continue
+
+            if status and summary["status"] != status:
+                continue
+
+            if report_type and summary["report_type"] != report_type:
+                continue
+
+            if search:
+                haystack = " ".join(
+                    str(summary.get(key) or "")
+                    for key in ("report_id", "title", "weighbridge_name", "bound_name")
+                ).lower()
+                if search.lower() not in haystack:
+                    continue
+
+            summaries.append(summary)
+
+        summaries.sort(key=lambda item: item["created_at"], reverse=True)
+        return summaries[offset : offset + limit]
+
+    def count_report_history(
+        self,
+        status: str | None = None,
+        report_type: str | None = None,
+        search: str | None = None,
+    ) -> int:
+        database_count = self.repository.count_reports(
+            status=status,
+            report_type=report_type,
+            search=search,
+        )
+
+        if database_count:
+            return database_count
+
+        return len(
+            self.list_report_history(
+                status=status,
+                report_type=report_type,
+                limit=10_000,
+                offset=0,
+                search=search,
+            )
+        )
+
     def save_upload(self, report_id: str, section: str, filename: str | None, content: bytes) -> Path:
         self.require(report_id)
         upload_dir = self.uploads_dir / report_id / section
         upload_dir.mkdir(parents=True, exist_ok=True)
         upload_path = upload_dir / _safe_filename(filename)
         upload_path.write_bytes(content)
+        self.repository.upsert_upload_metadata(
+            report_id=report_id,
+            upload_type=section,
+            original_filename=filename,
+            file_path=upload_path,
+            file_size_bytes=len(content),
+        )
         return upload_path
 
     def preview_cache_path(
@@ -382,6 +579,13 @@ class ReportSessionStore:
         preview_path = self.preview_cache_path(report_id, section_name, preview_format, page)
         preview_path.parent.mkdir(parents=True, exist_ok=True)
         preview_path.write_bytes(content)
+        self.repository.save_preview_metadata(
+            report_id=report_id,
+            section_name=section_name,
+            preview_format=preview_format,
+            file_path=preview_path,
+            page=page,
+        )
         return preview_path
 
     def set_section_ready(
@@ -512,6 +716,19 @@ class ReportSessionStore:
         self._refresh_daily_summary_status(session)
         self._invalidate_generated_outputs(session)
         self._save_metadata(session)
+        self.repository.upsert_manual_inputs(
+            report_id=report_id,
+            manual_inputs=session.manual_inputs,
+            prepared_by=session.prepared_by,
+            approved_by=session.confirmed_by,
+            weighbridge_name=session.weighbridge_name,
+            bound_name=session.bound,
+        )
+        return session
+
+    def set_report_processing(self, report_id: str) -> ReportSession:
+        session = self.require(report_id)
+        self.repository.update_report_status(report_id, "processing")
         return session
 
     def set_final_report(self, report_id: str, content: bytes) -> ReportSession:
@@ -519,11 +736,16 @@ class ReportSessionStore:
         final_report_path = self._final_report_path(report_id)
         final_report_path.parent.mkdir(parents=True, exist_ok=True)
         final_report_path.write_bytes(content)
+        self.repository.save_final_output_metadata(
+            report_id=report_id,
+            final_docx_path=final_report_path,
+        )
 
         session.final_report = content
         session.final_report_status = "ready"
         session.final_report_error = None
         self._save_metadata(session)
+        self.repository.update_report_status(report_id, "completed", completed=True)
         return session
 
     def set_final_report_error(self, report_id: str, message: str) -> ReportSession:
@@ -536,6 +758,11 @@ class ReportSessionStore:
         session.final_report_status = "error"
         session.final_report_error = message
         self._save_metadata(session)
+        self.repository.update_report_status(
+            report_id,
+            "failed",
+            error_message=message,
+        )
         return session
 
 

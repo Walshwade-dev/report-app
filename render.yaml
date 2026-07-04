@@ -5,7 +5,14 @@ services:
     branch: main
     rootDir: backend
     healthCheckPath: /health
+    preDeployCommand: alembic upgrade head
     envVars:
+      - key: APP_ENV
+        value: production
+      - key: FRONTEND_ORIGINS
+        value: https://your-frontend.example
+      - key: MAX_UPLOAD_MB
+        value: "20"
       - key: REPORT_STORAGE_ROOT
         value: /var/data/report-app-storage
     disk:

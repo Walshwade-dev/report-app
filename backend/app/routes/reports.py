@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -52,9 +52,29 @@ class ManualInputsUpdate(BaseModel):
 
 
 class ReportSessionMetadataUpdate(BaseModel):
+    report_date: str | None = None
     station: str | None = None
     bound: str | None = None
     weighbridge_name: str | None = None
+    prepared_by: str | None = None
+    confirmed_by: str | None = None
+
+
+class ReportSessionHistoryItem(BaseModel):
+    report_id: str
+    title: str | None = None
+    report_type: str
+    weighbridge_name: str | None = None
+    bound_name: str | None = None
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None = None
+    has_final_report: bool
+    upload_count: int
+    required_uploads_completed: bool
+    manual_inputs_completed: bool
+    download_available: bool
 
 
 def daily_display_date(report_date: str) -> str:
@@ -299,22 +319,89 @@ async def create_report_session(payload: ReportSessionCreate):
 
 
 @router.get("/report-sessions")
-async def list_report_sessions():
-    sessions = []
-    for metadata_path in sorted(report_session_store.sessions_dir.glob("*.json")):
-        report_id = metadata_path.stem
+async def list_report_sessions(
+    status: str | None = Query(default=None),
+    report_type: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    search: str | None = Query(default=None, max_length=120),
+):
+    items = []
+    summaries = report_session_store.list_report_history(
+        status=status,
+        report_type=report_type,
+        limit=limit,
+        offset=offset,
+        search=search,
+    )
+
+    for summary in summaries:
+        history_payload = ReportSessionHistoryItem.model_validate(summary).model_dump(
+            mode="json"
+        )
+        report_id = history_payload["report_id"]
+
         try:
             session = report_session_store.get(report_id)
-            if session:
-                sessions.append(serialize_session(session))
         except Exception:
-            pass
-    return sessions
+            session = None
+
+        if session:
+            payload = serialize_session(session)
+        else:
+            payload = {
+                "report_id": report_id,
+                "metadata": {
+                    "report_date": None,
+                    "station": history_payload["weighbridge_name"],
+                    "bound": history_payload["bound_name"],
+                    "weighbridge_name": history_payload["weighbridge_name"],
+                    "prepared_by": None,
+                    "confirmed_by": None,
+                },
+                "manual_inputs": {},
+                "sections": {},
+                "final_report": {
+                    "status": "ready"
+                    if history_payload["download_available"]
+                    else "not_built",
+                    "download_url": (
+                        f"/api/report-sessions/{report_id}/download-final-report"
+                        if history_payload["download_available"]
+                        else None
+                    ),
+                    "error": None,
+                },
+                "excel_report": {"status": "awaiting_data", "download_url": None},
+                "mobile_excel_report": {
+                    "status": "awaiting_data",
+                    "download_url": None,
+                },
+                "mobile_word_report": {
+                    "status": "awaiting_data",
+                    "download_url": None,
+                },
+            }
+
+        payload.update(history_payload)
+        items.append(payload)
+
+    return items
 
 
 @router.get("/report-sessions/{report_id}")
 async def get_report_session(report_id: str):
     return serialize_session(require_session(report_id))
+
+
+@router.delete("/report-sessions/{report_id}")
+async def delete_report_session(report_id: str):
+    deleted = report_session_store.delete(report_id)
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Report session not found")
+
+    return {"status": "deleted", "report_id": report_id}
 
 
 @router.get("/report-sessions/{report_id}/summary-cards")
@@ -848,17 +935,27 @@ async def update_report_session_metadata(
 ):
     require_session(report_id)
 
-    if payload.station is None and payload.bound is None and payload.weighbridge_name is None:
+    if (
+        payload.report_date is None
+        and payload.station is None
+        and payload.bound is None
+        and payload.weighbridge_name is None
+        and payload.prepared_by is None
+        and payload.confirmed_by is None
+    ):
         raise HTTPException(
             status_code=400,
-            detail="Provide station, bound, or weighbridge_name.",
+            detail="Provide at least one metadata field.",
         )
 
     updated = report_session_store.update_metadata(
         report_id,
+        report_date=payload.report_date,
         station=payload.station,
         bound=payload.bound,
         weighbridge_name=payload.weighbridge_name,
+        prepared_by=payload.prepared_by,
+        confirmed_by=payload.confirmed_by,
     )
     return serialize_session(updated)
 
@@ -1138,6 +1235,8 @@ async def build_report_session_final_report(report_id: str):
                 "session": serialize_session(updated),
             },
         )
+
+    report_session_store.set_report_processing(report_id)
 
     try:
         wideload_count = get_wideload_count_from_session(session)

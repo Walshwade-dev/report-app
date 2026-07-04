@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 import pandas as pd
 
@@ -129,6 +130,89 @@ def test_report_session_creation_persists_metadata(client, temp_store):
     fetched_payload = fetched.json()
     assert fetched_payload["metadata"]["station"] == "Juja"
     assert fetched_payload["metadata"]["bound"] == "Thika Bound"
+
+
+def test_report_session_delete_removes_metadata_and_artifacts(client, temp_store):
+    payload = create_session(client)
+    report_id = payload["report_id"]
+    upload_path = temp_store.save_upload(
+        report_id,
+        "daily_hour",
+        "daily-hour.csv",
+        b"DATE,TIME\n",
+    )
+
+    metadata_path = temp_store.sessions_dir / f"{report_id}.json"
+    assert metadata_path.exists()
+    assert upload_path.exists()
+
+    response = client.delete(f"/api/report-sessions/{report_id}")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "deleted", "report_id": report_id}
+    assert not metadata_path.exists()
+    assert not upload_path.exists()
+    assert client.get(f"/api/report-sessions/{report_id}").status_code == 404
+
+
+def test_report_session_history_listing_returns_newest_first(client, temp_store):
+    older_id = create_session(client)["report_id"]
+    newer_id = create_session(client)["report_id"]
+    older_path = temp_store.sessions_dir / f"{older_id}.json"
+    newer_path = temp_store.sessions_dir / f"{newer_id}.json"
+
+    os.utime(older_path, (1000, 1000))
+    os.utime(newer_path, (2000, 2000))
+
+    response = client.get("/api/report-sessions")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert isinstance(payload, list)
+    assert payload[0]["report_id"] == newer_id
+    assert payload[1]["report_id"] == older_id
+    assert "created_at" in payload[0]
+    assert "required_uploads_completed" in payload[0]
+
+
+def test_report_session_history_status_filter(client, temp_store):
+    draft_id = create_session(client)["report_id"]
+    completed_id = create_session(client)["report_id"]
+    temp_store.set_final_report(completed_id, b"final report")
+
+    response = client.get("/api/report-sessions?status=completed")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["report_id"] for item in payload] == [completed_id]
+    assert payload[0]["status"] == "completed"
+    assert draft_id not in [item["report_id"] for item in payload]
+
+
+def test_report_session_history_upload_completion(client, temp_store):
+    report_id = create_session(client)["report_id"]
+    seed_required_sections(temp_store, report_id)
+
+    response = client.get(f"/api/report-sessions?search={report_id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["upload_count"] == 4
+    assert payload[0]["required_uploads_completed"] is True
+
+
+def test_report_session_history_final_report_availability(client, temp_store):
+    report_id = create_session(client)["report_id"]
+    temp_store.set_final_report(report_id, b"final report")
+
+    response = client.get(f"/api/report-sessions?search={report_id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["has_final_report"] is True
+    assert payload[0]["download_available"] is True
 
 
 def test_report_session_metadata_update_persists_after_restart(client, temp_store, monkeypatch):
