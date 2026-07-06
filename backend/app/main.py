@@ -2,8 +2,11 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
+from app.core.database import SessionLocal, is_database_configured
 from app.routes.reports import router as reports_router
+from app.services.report_session_store import report_session_store
 
 app = FastAPI(
     title="Report App",
@@ -63,6 +66,39 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/health/persistence")
+async def persistence_health():
+    database_connected = False
+    database_error: str | None = None
+
+    if SessionLocal is not None:
+        try:
+            with SessionLocal() as session:
+                session.execute(text("select 1"))
+            database_connected = True
+        except Exception as exc:
+            database_error = exc.__class__.__name__
+
+    storage_root = report_session_store.storage_root
+
+    return {
+        "status": "ok",
+        "database": {
+            "configured": is_database_configured(),
+            "connected": database_connected,
+            "error": database_error,
+        },
+        "storage": {
+            "root": str(storage_root),
+            "exists": storage_root.exists(),
+            "sessions_dir_exists": report_session_store.sessions_dir.exists(),
+            "uploads_dir_exists": report_session_store.uploads_dir.exists(),
+            "processed_dir_exists": report_session_store.processed_dir.exists(),
+            "final_reports_dir_exists": report_session_store.final_reports_dir.exists(),
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
