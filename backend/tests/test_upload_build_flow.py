@@ -228,7 +228,9 @@ def test_mobile_report_downloads_mapped_excel_workbook(client):
         download.headers["content-type"]
         == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-    assert download.headers["content-disposition"].endswith('.xlsx"')
+    assert download.headers["content-disposition"] == (
+        'attachment; filename="JUJA WEIGHBRIDGE MOBILE DAILY REPORT 1 02.02.26.xlsx"'
+    )
 
     workbook = load_workbook(io.BytesIO(download.content), data_only=False)
     summary = workbook["Weigh & Hourly Summary"]
@@ -376,7 +378,7 @@ def test_mobile_report_downloads_mapped_word_document(client):
 
     metadata_response = client.patch(
         f"/api/report-sessions/{report_id}/metadata",
-        json={"station": "Juja mobile"},
+        json={"station": "Juja mobile", "bound": "Mobile 2"},
     )
     assert metadata_response.status_code == 200
 
@@ -418,7 +420,9 @@ def test_mobile_report_downloads_mapped_word_document(client):
         download.headers["content-type"]
         == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
-    assert download.headers["content-disposition"].endswith('.docx"')
+    assert download.headers["content-disposition"] == (
+        'attachment; filename="JUJA WEIGHBRIDGE MOBILE DAILY REPORT 2 02.02.26.docx"'
+    )
     assert download.content.startswith(b"PK")
 
     document = Document(io.BytesIO(download.content))
@@ -496,10 +500,10 @@ def test_mobile_report_downloads_mapped_word_document(client):
     assert len(document.tables) == 9
 
     assert section_header_text(document.sections[0]) == (
-        "JUJA MOBILE DAILY REPORT 1"
+        "JUJA MOBILE DAILY REPORT 2"
     )
     assert section_header_text(document.sections[1]) == (
-        "JUJA MOBILE DAILY REPORT 1"
+        "JUJA MOBILE DAILY REPORT 2"
     )
     assert header_roots
     assert all(
@@ -519,19 +523,19 @@ def test_mobile_report_downloads_mapped_word_document(client):
         assert header_grid_widths[1] > header_grid_widths[0]
         assert header_grid_widths[1] > header_grid_widths[2]
     assert all(
-        paragraph.text != "JUJA MOBILE DAILY REPORT 1"
+        paragraph.text != "JUJA MOBILE DAILY REPORT 2"
         for paragraph in document.paragraphs
     )
     assert all(
-        "JUJA MOBILE MOBILE DAILY REPORT 1" not in paragraph.text
+        "JUJA MOBILE MOBILE DAILY REPORT 2" not in paragraph.text
         for paragraph in document.paragraphs
     )
     assert footer_text.startswith(
-        "KeNHA/WB/MTCE/4339/2025\tJUJA MOBILE REPORT 1 12TH MAY, 2026\tPage "
+        "KeNHA/WB/MTCE/4339/2025\tJUJA MOBILE REPORT 2 12TH MAY, 2026\tPage "
     )
     assert "KeNHA/WB/MTCE/43339/2025" not in footer_text
-    assert "JUJA MOBILE MOBILE REPORT 1" not in footer_text
-    assert "REPORT 1  12TH" not in footer_text
+    assert "JUJA MOBILE MOBILE REPORT 2" not in footer_text
+    assert "REPORT 2  12TH" not in footer_text
     superscript_footer_text = [
         "".join(
             text_node.text or ""

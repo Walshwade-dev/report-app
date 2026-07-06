@@ -106,12 +106,18 @@ def get_report_filename(session: ReportSession, ext: str) -> str:
 
 
 def get_mobile_report_filename(session: ReportSession, ext: str) -> str:
-    station_name = (session.station or "STATION").upper()
+    station_name = (session.station or session.weighbridge_name or "STATION").upper()
+    station_name = " ".join(
+        part for part in station_name.split() if part != "MOBILE"
+    ).strip()
+    if not station_name:
+        station_name = "STATION"
     if "WEIGHBRIDGE" not in station_name:
         station_name = f"{station_name} WEIGHBRIDGE"
-    bound_name = (session.bound or "BOUND").upper()
     date_part = format_filename_date(session.report_date)
-    return f"{station_name} MOBILE REPORT {bound_name} {date_part}.{ext}"
+    bound_name = (session.bound or "").lower()
+    report_number = "2" if "2" in bound_name or "two" in bound_name else "1"
+    return f"{station_name} MOBILE DAILY REPORT {report_number} {date_part}.{ext}"
 
 
 def serialize_session(session: ReportSession) -> dict:

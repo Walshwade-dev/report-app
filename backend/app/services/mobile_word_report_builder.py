@@ -83,6 +83,13 @@ def _mobile_station_label(session) -> str:
     return station
 
 
+def _mobile_report_number(session) -> str:
+    bound = str(getattr(session, "bound", "") or "").strip().lower()
+    if re.search(r"\b(2|two|mobile_2)\b", bound):
+        return "2"
+    return "1"
+
+
 def _date_value(value: Any) -> datetime:
     if isinstance(value, datetime):
         return value
@@ -970,6 +977,7 @@ def _add_mobile_footer(section, report_date, session) -> None:
     tab_stops.add_tab_stop(Inches(printable_width), WD_TAB_ALIGNMENT.RIGHT)
 
     station = _mobile_station_label(session)
+    report_number = _mobile_report_number(session)
 
     date_obj = _date_value(report_date)
     day = date_obj.day
@@ -982,7 +990,7 @@ def _add_mobile_footer(section, report_date, session) -> None:
     first_tab = paragraph.add_run("\t")
     _style_footer_run(first_tab)
 
-    report_label = paragraph.add_run(f"{station} MOBILE REPORT 1 {day}")
+    report_label = paragraph.add_run(f"{station} MOBILE REPORT {report_number} {day}")
     _style_footer_run(report_label)
 
     suffix_label = paragraph.add_run(suffix)
@@ -1028,6 +1036,7 @@ def _add_mobile_title_header(section, session) -> None:
         _set_cell_width(table.cell(0, col), width)
 
     station = _mobile_station_label(session)
+    report_number = _mobile_report_number(session)
 
     logo_cell = table.cell(0, 0)
     logo_cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
@@ -1046,7 +1055,7 @@ def _add_mobile_title_header(section, session) -> None:
     title_paragraph.paragraph_format.space_before = Pt(0)
     title_paragraph.paragraph_format.space_after = Pt(0)
 
-    run = title_paragraph.add_run(f"{station} MOBILE DAILY REPORT 1")
+    run = title_paragraph.add_run(f"{station} MOBILE DAILY REPORT {report_number}")
     run.bold = True
     run.underline = True
     run.font.name = "Times New Roman"
