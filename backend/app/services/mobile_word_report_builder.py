@@ -59,6 +59,44 @@ def _manual_value(session, *keys: str, default: Any = "") -> Any:
     return default
 
 
+def _manual_shifts(session) -> list[dict[str, Any]]:
+    mobile = _manual_source(session)
+    shifts = mobile.get("shifts")
+    if isinstance(shifts, list):
+        valid_shifts = [shift for shift in shifts if isinstance(shift, dict)]
+        if valid_shifts:
+            return valid_shifts
+
+    return [
+        {
+            "label": "Shift 1",
+            "start_time": "0000",
+            "end_time": "0000",
+            "danka_staff": _manual_value(session, "danka_staff", "computer_operator"),
+            "police_officers": _manual_value(session, "police_officers", "police"),
+            "mobile_vehicle": _manual_value(
+                session,
+                "mobile_vehicle",
+                "vehicle_used",
+                "vehicle",
+            ),
+            "mileage_start": _manual_value(session, "mileage_start"),
+            "mileage_end": _manual_value(session, "mileage_end"),
+        }
+    ]
+
+
+def _shift_for_record(record, shifts: list[dict[str, Any]]) -> dict[str, Any]:
+    if len(shifts) < 2:
+        return shifts[0]
+
+    date_time = pd.to_datetime(record.get("date_time"), errors="coerce")
+    if pd.isna(date_time):
+        return shifts[0]
+
+    return shifts[0] if date_time.hour < 8 else shifts[1]
+
+
 def _manual_int(session, *keys: str, default: int = 0) -> int:
     value = _manual_value(session, *keys, default=default)
     number = pd.to_numeric(value, errors="coerce")
@@ -721,11 +759,12 @@ def _add_nil_table(doc: Document, heading: str, headers: list[str], widths: list
         _set_cell_width(table.cell(1, col), widths[col])
 
 
-def _vehicle_row_values(record, session, report_date) -> list[str]:
+def _vehicle_row_values(record, session, report_date, shifts: list[dict[str, Any]]) -> list[str]:
     gvw_excess = record["gvw_difference_kg"] if record["gvw_difference_kg"] > 0 else 0
     axle_excess = record["excess_kg"] if record["excess_kg"] > 0 else 0
-    danka_staff = _manual_value(session, "danka_staff", "computer_operator")
-    police_officers = _manual_value(session, "police_officers", "police")
+    shift = _shift_for_record(record, shifts)
+    danka_staff = shift.get("danka_staff")
+    police_officers = shift.get("police_officers")
 
     return [
         _vehicle_display_date(report_date),
@@ -751,6 +790,7 @@ def _add_vehicle_table(
     report_date,
 ) -> None:
     _add_heading(doc, heading)
+    shifts = _manual_shifts(session)
     rows = max(1, len(records)) + 2
     table = doc.add_table(rows=rows, cols=12)
     table.autofit = False
@@ -800,7 +840,7 @@ def _add_vehicle_table(
             _set_cell_width(table.cell(2, col), VEHICLE_TABLE_WIDTHS[col])
     else:
         for row_index, (_, record) in enumerate(records.iterrows(), start=2):
-            row_values = _vehicle_row_values(record, session, report_date)
+            row_values = _vehicle_row_values(record, session, report_date, shifts)
             for col, value in enumerate(row_values):
                 align = WD_ALIGN_PARAGRAPH.RIGHT if col in (4, 5) else WD_ALIGN_PARAGRAPH.LEFT
                 _set_cell_text(table.cell(row_index, col), value, font_name="Calibri", size=11, align=align)
@@ -821,21 +861,9 @@ def _add_mileage_table(doc: Document, session) -> None:
     _set_row_height(table.rows[2], 0.2188)
     _set_row_height(table.rows[3], 0.2188)
 
-    start = _manual_value(session, "mileage_start")
-    end = _manual_value(session, "mileage_end")
-    kms = ""
-    start_number = _plain_int(start)
-    end_number = _plain_int(end)
-    if start_number is not None and end_number is not None:
-        kms = _format_number(end_number - start_number)
+    shifts = _manual_shifts(session)
 
     headers = ["MILEAGE START", "MILEAGE END", "KMS", "MOBILE VEHICLE"]
-    values = [
-        _format_number(start_number) if start_number is not None else "",
-        _format_number(end_number) if end_number is not None else "",
-        kms,
-        _upper(_manual_value(session, "mobile_vehicle", "vehicle_used", "vehicle")),
-    ]
 
     for col, header in enumerate(headers):
         _set_cell_text(
@@ -847,27 +875,51 @@ def _add_mileage_table(doc: Document, session) -> None:
             valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM,
         )
         _set_cell_width(table.cell(0, col), widths[col])
-        _set_cell_text(
-            table.cell(1, col),
-            values[col],
-            font_name="Calibri",
-            size=14,
-            valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM,
-        )
-        _set_cell_width(table.cell(1, col), widths[col])
 
-    for col in range(4):
-        _set_cell_text(
-            table.cell(2, col),
-            "",
-            font_name="Calibri",
-            size=14,
-            valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM,
-        )
-        _set_cell_width(table.cell(2, col), widths[col])
+    total_kms = 0
+    has_total_kms = False
+    for row_index, shift in enumerate(shifts[:2], start=1):
+        start_number = _plain_int(shift.get("mileage_start"))
+        end_number = _plain_int(shift.get("mileage_end"))
+        kms = ""
+        if start_number is not None and end_number is not None:
+            shift_kms = end_number - start_number
+            total_kms += shift_kms
+            has_total_kms = True
+            kms = _format_number(shift_kms)
+
+        values = [
+            _format_number(start_number) if start_number is not None else "",
+            _format_number(end_number) if end_number is not None else "",
+            kms,
+            _upper(shift.get("mobile_vehicle")),
+        ]
+
+        for col, value in enumerate(values):
+            _set_cell_text(
+                table.cell(row_index, col),
+                value,
+                font_name="Calibri",
+                size=14,
+                valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM,
+            )
+            _set_cell_width(table.cell(row_index, col), widths[col])
+
+    for row_index in range(1 + len(shifts[:2]), 3):
+        for col in range(4):
+            _set_cell_text(
+                table.cell(row_index, col),
+                "",
+                font_name="Calibri",
+                size=14,
+                valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM,
+            )
+            _set_cell_width(table.cell(row_index, col), widths[col])
+
+    total_label = _format_number(total_kms) if has_total_kms else ""
     _set_cell_text(
         table.cell(3, 2),
-        f"{kms} KMS" if kms else "",
+        f"{total_label} KMS" if total_label else "",
         font_name="Calibri",
         size=14,
         bold=True,
@@ -891,6 +943,21 @@ def _format_location_people(value: Any) -> str:
     return f"{' / '.join(names)}."
 
 
+def _format_shift_people(shifts: list[dict[str, Any]], key: str) -> str:
+    if len(shifts) < 2:
+        return _format_location_people(shifts[0].get(key) if shifts else "")
+
+    parts = []
+    for index, shift in enumerate(shifts[:2], start=1):
+        people = " / ".join(
+            _upper(name) for name in _split_location_people(shift.get(key))
+        )
+        if people:
+            parts.append(f"SHIFT {index}: {people}")
+
+    return f"{'; '.join(parts)}." if parts else "."
+
+
 def _format_route(value: Any) -> str:
     route = _upper(value).strip(".")
     return f"{route}." if route else "."
@@ -898,8 +965,7 @@ def _format_route(value: Any) -> str:
 
 def _add_location_notes(doc: Document, session) -> None:
     route = _manual_value(session, "route")
-    danka_staff = _manual_value(session, "danka_staff", "computer_operator")
-    police = _manual_value(session, "police_officers", "police")
+    shifts = _manual_shifts(session)
 
     _add_mixed_line(
         doc,
@@ -911,13 +977,13 @@ def _add_location_notes(doc: Document, session) -> None:
     _add_mixed_line(
         doc,
         "DANKA PERSONNEL : ",
-        _format_location_people(danka_staff),
+        _format_shift_people(shifts, "danka_staff"),
         space_after=6,
     )
     _add_mixed_line(
         doc,
         "POLICE OFFICERS : ",
-        _format_location_people(police),
+        _format_shift_people(shifts, "police_officers"),
     )
 
 

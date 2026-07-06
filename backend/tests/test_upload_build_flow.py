@@ -196,6 +196,12 @@ def test_mobile_report_upload_extracts_weighbridge_register(client):
 def test_mobile_report_downloads_mapped_excel_workbook(client):
     report_id = create_report_session(client)
 
+    metadata_response = client.patch(
+        f"/api/report-sessions/{report_id}/metadata",
+        json={"station": "Juja mobile", "bound": "Mobile 2"},
+    )
+    assert metadata_response.status_code == 200
+
     manual_response = client.patch(
         f"/api/report-sessions/{report_id}/manual-inputs",
         json={
@@ -208,6 +214,28 @@ def test_mobile_report_downloads_mapped_excel_workbook(client):
                     "mileage_start": 61267,
                     "mileage_end": 61447,
                     "cases_cleared_in_court": 3,
+                    "shifts": [
+                        {
+                            "label": "Shift 1",
+                            "start_time": "0000",
+                            "end_time": "0800",
+                            "danka_staff": "dm duncan odhiambo / driver jane doe",
+                            "police_officers": "cpl emason sautet / pc jane doe",
+                            "mobile_vehicle": "kds042z",
+                            "mileage_start": 61267,
+                            "mileage_end": 61447,
+                        },
+                        {
+                            "label": "Shift 2",
+                            "start_time": "0800",
+                            "end_time": "0000",
+                            "danka_staff": "dm elizabeth chari / driver samuel gitara",
+                            "police_officers": "sgt angelo mbogori / pc emerson sutet",
+                            "mobile_vehicle": "kds085z",
+                            "mileage_start": 70000,
+                            "mileage_end": 70123,
+                        },
+                    ],
                 }
             }
         },
@@ -229,7 +257,7 @@ def test_mobile_report_downloads_mapped_excel_workbook(client):
         == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
     assert download.headers["content-disposition"] == (
-        'attachment; filename="JUJA WEIGHBRIDGE MOBILE DAILY REPORT 1 02.02.26.xlsx"'
+        'attachment; filename="JUJA WEIGHBRIDGE MOBILE DAILY REPORT 2 02.02.26.xlsx"'
     )
 
     workbook = load_workbook(io.BytesIO(download.content), data_only=False)
@@ -257,6 +285,12 @@ def test_mobile_report_downloads_mapped_excel_workbook(client):
     assert detail["L6"].value == 61447
     assert detail["M6"].value == "=L6-K6"
     assert detail["N6"].value == "KDS042Z"
+    assert detail["E7"].value == "DM ELIZABETH CHARI / DRIVER SAMUEL GITARA"
+    assert detail["G7"].value == "SGT ANGELO MBOGORI / PC EMERSON SUTET"
+    assert detail["K7"].value == 70000
+    assert detail["L7"].value == 70123
+    assert detail["M7"].value == "=L7-K7"
+    assert detail["N7"].value == "KDS085Z"
 
     assert detail["C11"].value == "KBW781J"
     assert detail["D11"].value == "OMAR HALEN."
@@ -396,6 +430,28 @@ def test_mobile_report_downloads_mapped_word_document(client):
                     "mileage_start": 61267,
                     "mileage_end": 61447,
                     "cases_cleared_in_court": 3,
+                    "shifts": [
+                        {
+                            "label": "Shift 1",
+                            "start_time": "0000",
+                            "end_time": "0800",
+                            "danka_staff": "dm duncan odhiambo / driver jane doe",
+                            "police_officers": "cpl emason sautet / pc jane doe",
+                            "mobile_vehicle": "kds042z",
+                            "mileage_start": 61267,
+                            "mileage_end": 61447,
+                        },
+                        {
+                            "label": "Shift 2",
+                            "start_time": "0800",
+                            "end_time": "0000",
+                            "danka_staff": "dm elizabeth chari / driver samuel gitara",
+                            "police_officers": "sgt angelo mbogori / pc emerson sutet",
+                            "mobile_vehicle": "kds085z",
+                            "mileage_start": 70000,
+                            "mileage_end": 70123,
+                        },
+                    ],
                 }
             },
         },
@@ -619,6 +675,11 @@ def test_mobile_report_downloads_mapped_word_document(client):
     assert mileage.cell(1, 1).text == "61,447"
     assert mileage.cell(1, 2).text == "180"
     assert mileage.cell(1, 3).text == "KDS042Z"
+    assert mileage.cell(2, 0).text == "70,000"
+    assert mileage.cell(2, 1).text == "70,123"
+    assert mileage.cell(2, 2).text == "123"
+    assert mileage.cell(2, 3).text == "KDS085Z"
+    assert mileage.cell(3, 2).text == "303 KMS"
     assert mileage.cell(0, 0).paragraphs[0].runs[0].font.name == "Arial"
     assert mileage.cell(0, 0).paragraphs[0].runs[0].font.size.pt == 12
     assert mileage.cell(1, 0).paragraphs[0].runs[0].font.name == "Calibri"
@@ -645,11 +706,13 @@ def test_mobile_report_downloads_mapped_word_document(client):
     assert actual_route_paragraph.paragraph_format.space_before.pt == 6
     assert actual_route_paragraph.paragraph_format.space_after.pt == 6
     assert danka_paragraph.text == (
-        "DANKA PERSONNEL : DM DUNCAN ODHIAMBO / DRIVER JANE DOE."
+        "DANKA PERSONNEL : SHIFT 1: DM DUNCAN ODHIAMBO / DRIVER JANE DOE; "
+        "SHIFT 2: DM ELIZABETH CHARI / DRIVER SAMUEL GITARA."
     )
     assert danka_paragraph.paragraph_format.space_after.pt == 6
     assert police_paragraph.text == (
-        "POLICE OFFICERS : CPL EMASON SAUTET / PC JANE DOE."
+        "POLICE OFFICERS : SHIFT 1: CPL EMASON SAUTET / PC JANE DOE; "
+        "SHIFT 2: SGT ANGELO MBOGORI / PC EMERSON SUTET."
     )
 
     with zipfile.ZipFile(io.BytesIO(download.content)) as archive:

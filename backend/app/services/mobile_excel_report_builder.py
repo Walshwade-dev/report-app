@@ -322,6 +322,50 @@ def _manual_value(session, *keys: str, default: Any = "") -> Any:
     return default
 
 
+def _manual_shifts(session) -> list[dict[str, Any]]:
+    mobile = _manual_source(session)
+    shifts = mobile.get("shifts")
+    if isinstance(shifts, list):
+        valid_shifts = [shift for shift in shifts if isinstance(shift, dict)]
+        if valid_shifts:
+            return valid_shifts
+
+    return [
+        {
+            "label": "Shift 1",
+            "start_time": "0000",
+            "end_time": "0000",
+            "danka_staff": _manual_value(
+                session,
+                "danka_staff",
+                "danka_officers",
+                "computer_operator",
+                "computer_operators",
+            ),
+            "police_officers": _manual_value(session, "police_officers", "police"),
+            "mobile_vehicle": _manual_value(
+                session,
+                "mobile_vehicle",
+                "vehicle_used",
+                "vehicle",
+            ),
+            "mileage_start": _manual_value(session, "mileage_start"),
+            "mileage_end": _manual_value(session, "mileage_end"),
+        }
+    ]
+
+
+def _shift_for_record(record, shifts: list[dict[str, Any]]) -> dict[str, Any]:
+    if len(shifts) < 2:
+        return shifts[0]
+
+    date_time = pd.to_datetime(record.get("date_time"), errors="coerce")
+    if pd.isna(date_time):
+        return shifts[0]
+
+    return shifts[0] if date_time.hour < 8 else shifts[1]
+
+
 def _manual_int(session, *keys: str, default: int = 0) -> int:
     value = _manual_value(session, *keys, default=default)
     number = pd.to_numeric(value, errors="coerce")
@@ -622,42 +666,41 @@ def _write_manual_header(
     report_date: datetime | str,
     summary: dict[str, Any],
 ) -> None:
-    danka_staff = _manual_value(
-        session,
-        "danka_staff",
-        "danka_officers",
-        "computer_operator",
-        "computer_operators",
-    )
-    police_officers = _manual_value(session, "police_officers", "police")
-    mileage_start = _plain_int(_manual_value(session, "mileage_start"))
-    mileage_end = _plain_int(_manual_value(session, "mileage_end"))
+    shifts = _manual_shifts(session)
 
     _set_detail_center_cell(ws, "B6", report_date, number_format=DATE_FORMAT)
-    _set_detail_text_cell(ws, "E6", _upper(danka_staff))
-    _set_detail_text_cell(ws, "E7", "")
-    _set_detail_text_cell(ws, "G6", _upper(police_officers), vertical=None)
-    _set_detail_text_cell(ws, "G7", "", vertical=None)
     _set_detail_center_cell(ws, "I6", int(summary["total_trucks_weighed"]), border=MEDIUM_BORDER, size=10)
     _set_detail_center_cell(ws, "J6", int(summary["charged_gvw_axle_trucks"]), border=MEDIUM_BORDER, size=10)
     charged_dim = int(summary["charged_dimensions_trucks"])
     _set_detail_center_cell(ws, "J7", charged_dim)
-    _set_detail_center_cell(ws, "K6", mileage_start, border=MEDIUM_BORDER)
-    _set_detail_center_cell(ws, "L6", mileage_end)
-    _set_detail_center_cell(
-        ws,
-        "M6",
-        "=L6-K6" if mileage_start is not None and mileage_end is not None else None,
-        border=MEDIUM_BORDER,
-        size=10,
-    )
-    _set_detail_center_cell(
-        ws,
-        "N6",
-        _upper(_manual_value(session, "mobile_vehicle", "vehicle_used", "vehicle")),
-        border=MEDIUM_BORDER,
-        size=10,
-    )
+
+    for index, shift in enumerate(shifts[:2], start=6):
+        mileage_start = _plain_int(shift.get("mileage_start"))
+        mileage_end = _plain_int(shift.get("mileage_end"))
+        _set_detail_text_cell(ws, f"E{index}", _upper(shift.get("danka_staff")))
+        _set_detail_text_cell(ws, f"G{index}", _upper(shift.get("police_officers")), vertical=None)
+        _set_detail_center_cell(ws, f"K{index}", mileage_start, border=MEDIUM_BORDER)
+        _set_detail_center_cell(ws, f"L{index}", mileage_end)
+        _set_detail_center_cell(
+            ws,
+            f"M{index}",
+            f"=L{index}-K{index}"
+            if mileage_start is not None and mileage_end is not None
+            else None,
+            border=MEDIUM_BORDER,
+            size=10,
+        )
+        _set_detail_center_cell(
+            ws,
+            f"N{index}",
+            _upper(shift.get("mobile_vehicle")),
+            border=MEDIUM_BORDER,
+            size=10,
+        )
+
+    if len(shifts) < 2:
+        _set_detail_text_cell(ws, "E7", "")
+        _set_detail_text_cell(ws, "G7", "", vertical=None)
 
 
 def _write_detail_rows(
@@ -667,22 +710,16 @@ def _write_detail_rows(
     report_date: datetime | str,
 ) -> None:
     route = _upper(_manual_value(session, "route"))
-    danka_staff = _manual_value(
-        session,
-        "danka_staff",
-        "danka_officers",
-        "computer_operator",
-        "computer_operators",
-    )
-    police_officers = _manual_value(session, "police_officers", "police")
+    shifts = _manual_shifts(session)
 
     for offset, (_, record) in enumerate(records.iterrows()):
         row = 11 + offset
         gvw_excess = record["gvw_difference_kg"] if record["gvw_difference_kg"] > 0 else "-"
         axle_excess = record["excess_kg"] if record["excess_kg"] > 0 else "-"
 
-        danka_staff_val = danka_staff
-        police_officers_val = police_officers
+        shift = _shift_for_record(record, shifts)
+        danka_staff_val = shift.get("danka_staff")
+        police_officers_val = shift.get("police_officers")
 
         values = {
             f"B{row}": report_date,
