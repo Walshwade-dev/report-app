@@ -1126,13 +1126,13 @@ async def upload_wideload_file(report_id: str, file: UploadFile = File(...)):
             str(exc),
         )
 
-    raise HTTPException(
-        status_code=400,
-        detail={
-            "section": "wideload",
-            "message": str(exc),
-        },
-    )
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "section": "wideload",
+                "message": str(exc),
+            },
+        )
     
 
 @router.post("/report-sessions/{report_id}/uploads/impounded-prohibited")
@@ -1166,13 +1166,13 @@ async def upload_impounded_prohibited_file(
             str(exc),
         )
 
-    raise HTTPException(
-        status_code=400,
-        detail={
-            "section": "impounded_prohibited",
-            "message": str(exc),
-        },
-    )
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "section": "impounded_prohibited",
+                "message": str(exc),
+            },
+        )
     
 
 
@@ -1200,13 +1200,13 @@ async def upload_overloaded_file(report_id: str, file: UploadFile = File(...)):
             str(exc),
         )
 
-    raise HTTPException(
-        status_code=400,
-        detail={
-            "section": "overloaded",
-            "message": str(exc),
-        },
-    )
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "section": "overloaded",
+                "message": str(exc),
+            },
+        )
 
 
 @router.post("/report-sessions/{report_id}/uploads/mobile-report")

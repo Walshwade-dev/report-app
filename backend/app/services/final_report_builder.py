@@ -14,7 +14,6 @@ from app.services.daily_hour_generator import add_daily_hour_statistics_section
 from app.services.daily_hour_chart_generator import add_daily_hour_chart_section
 from app.services.traffic_census_generator import add_traffic_census_section
 from app.services.daily_summary_generator import add_daily_summary_section
-from app.services.daily_summary_processor import build_daily_summary
 from app.services.transgressions_generator import add_transgressions_section
 
 

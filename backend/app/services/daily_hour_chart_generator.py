@@ -12,13 +12,6 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt
-from app.services.report_layout import (
-    FONT_NAME,
-    SECTION_TITLE_SIZE,
-    SUBHEADING_SIZE,
-    TABLE_HEADER_SIZE,
-    TABLE_BODY_SIZE,
-)
 
 TABLE_WIDTHS = [1110, 960, 660, 1060, 1050]
 COMPACT_TABLE_WIDTHS = TABLE_WIDTHS

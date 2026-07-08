@@ -25,7 +25,6 @@ from app.services.daily_summary_processor import (
     DailySummaryMissingSourceError,
     build_daily_summary_from_session,
 )
-from app.services.report_session_metrics import get_wideload_count_from_session
 
 
 FONT_NAME = "Arial"

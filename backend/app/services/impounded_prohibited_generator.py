@@ -5,7 +5,7 @@ from docx.enum.table import (
     WD_CELL_VERTICAL_ALIGNMENT,
     WD_ROW_HEIGHT_RULE,
 )
-from docx.shared import Inches, Pt
+from docx.shared import Pt
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 

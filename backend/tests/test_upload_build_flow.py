@@ -349,7 +349,6 @@ def test_mobile_report_downloads_mapped_excel_workbook(client):
     with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
         chart_xml = ElementTree.fromstring(archive.read("xl/charts/chart1.xml"))
         drawing_xml = ElementTree.fromstring(archive.read("xl/drawings/drawing1.xml"))
-        summary_xml = ElementTree.fromstring(archive.read("xl/worksheets/sheet1.xml"))
 
     line_elements = chart_xml.findall(".//c:ser/c:spPr/a:ln", CHART_NAMESPACE)
     assert len(line_elements) == 2
