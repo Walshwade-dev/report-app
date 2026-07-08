@@ -291,6 +291,17 @@ alembic upgrade head
 The production health check uses `/health/persistence`, so Render will mark the
 service unhealthy if PostgreSQL or persistent storage is not configured.
 
+If `database.connected` is `false` with `database.error = "ProgrammingError"`,
+the backend can reach PostgreSQL but the expected tables are missing. Run:
+
+```bash
+alembic upgrade head
+```
+
+The Docker startup command also runs `alembic upgrade head` before starting
+Uvicorn so manually configured Render services still apply the schema on
+deploy.
+
 Current production verification completed on 2026-07-08:
 
 ```text
