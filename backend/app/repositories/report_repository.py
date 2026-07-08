@@ -125,6 +125,8 @@ class ReportRepository:
                 return operation(session)
         except SQLAlchemyError:
             logger.exception("Database operation failed: %s", operation_name)
+            if os.getenv("APP_ENV", "production") == "production":
+                raise
             return None
 
     def save_session_snapshot(self, payload: dict[str, Any]) -> None:

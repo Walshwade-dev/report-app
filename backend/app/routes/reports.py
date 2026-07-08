@@ -1,7 +1,9 @@
 import logging
+import os
+import secrets
 from datetime import datetime
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -75,6 +77,25 @@ class ReportSessionHistoryItem(BaseModel):
     required_uploads_completed: bool
     manual_inputs_completed: bool
     download_available: bool
+
+
+def require_admin_password(x_admin_password: str | None) -> None:
+    configured_password = os.getenv("ADMIN_PASSWORD")
+
+    if not configured_password:
+        raise HTTPException(
+            status_code=503,
+            detail="Admin password is not configured.",
+        )
+
+    if not x_admin_password or not secrets.compare_digest(
+        x_admin_password,
+        configured_password,
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid admin password.",
+        )
 
 
 def daily_display_date(report_date: str) -> str:
@@ -243,6 +264,30 @@ def daily_hour_total_column(session: ReportSession, column: str) -> int | None:
     return int(daily_df.loc[totals_mask].iloc[-1].get(column, 0))
 
 
+def available_report_sessions() -> list[tuple[ReportSession, float]]:
+    report_ids = report_session_store.list_report_ids()
+    total_ids = len(report_ids)
+    sessions: list[tuple[ReportSession, float]] = []
+
+    for index, report_id in enumerate(report_ids):
+        try:
+            session = report_session_store.get(report_id)
+            if not session:
+                continue
+
+            metadata_path = report_session_store.sessions_dir / f"{report_id}.json"
+            modified_at = (
+                metadata_path.stat().st_mtime
+                if metadata_path.exists()
+                else float(total_ids - index)
+            )
+            sessions.append((session, modified_at))
+        except Exception:
+            logger.exception("Failed to load report session for analytics: %s", report_id)
+
+    return sessions
+
+
 def summary_card(title: str, value: int | None, source: str) -> dict:
     is_ready = value is not None
 
@@ -331,7 +376,9 @@ async def list_report_sessions(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     search: str | None = Query(default=None, max_length=120),
+    x_admin_password: str | None = Header(default=None),
 ):
+    require_admin_password(x_admin_password)
     items = []
     summaries = report_session_store.list_report_history(
         status=status,
@@ -401,7 +448,11 @@ async def get_report_session(report_id: str):
 
 
 @router.delete("/report-sessions/{report_id}")
-async def delete_report_session(report_id: str):
+async def delete_report_session(
+    report_id: str,
+    x_admin_password: str | None = Header(default=None),
+):
+    require_admin_password(x_admin_password)
     deleted = report_session_store.delete(report_id)
 
     if not deleted:
@@ -563,14 +614,9 @@ async def get_analytics_dashboard(
 ):
     sessions = []
     session_modified_at: dict[str, float] = {}
-    for metadata_path in sorted(report_session_store.sessions_dir.glob("*.json")):
-        try:
-            session = report_session_store.get(metadata_path.stem)
-            if session:
-                sessions.append(session)
-                session_modified_at[session.report_id] = metadata_path.stat().st_mtime
-        except Exception:
-            pass
+    for session, modified_at in available_report_sessions():
+        sessions.append(session)
+        session_modified_at[session.report_id] = modified_at
 
     latest_static_sessions: dict[tuple[str, str, str], tuple[ReportSession, float]] = {}
     latest_mobile_sessions: dict[tuple[str, str], tuple[ReportSession, float]] = {}
@@ -720,14 +766,7 @@ async def get_analytics_dashboard(
 
 @router.get("/report-sessions/analytics/details")
 async def get_analytics_details():
-    sessions = []
-    for metadata_path in sorted(report_session_store.sessions_dir.glob("*.json")):
-        try:
-            session = report_session_store.get(metadata_path.stem)
-            if session:
-                sessions.append(session)
-        except Exception:
-            pass
+    sessions = [session for session, _ in available_report_sessions()]
 
     juja_sessions = [s for s in sessions if s.station and "juja" in s.station.lower()]
     
@@ -853,9 +892,8 @@ async def get_analytics_details():
 async def get_dms_performance():
     latest_mobile_sessions: dict[tuple[str, str, str], tuple[ReportSession, float]] = {}
 
-    for metadata_path in sorted(report_session_store.sessions_dir.glob("*.json")):
+    for session, modified_at in available_report_sessions():
         try:
-            session = report_session_store.get(metadata_path.stem)
             if not session or session.sections.get("mobile_report", {}).get("status") != "ready":
                 continue
 
@@ -864,7 +902,6 @@ async def get_dms_performance():
                 or (session.station or session.weighbridge_name or "").strip().lower()
             )
             key = (session.report_date, station_key, mobile_report_slot(session.bound))
-            modified_at = metadata_path.stat().st_mtime
             previous = latest_mobile_sessions.get(key)
             if previous is None or modified_at >= previous[1]:
                 latest_mobile_sessions[key] = (session, modified_at)
@@ -1425,9 +1462,8 @@ async def download_report_session_mobile_word_report(report_id: str):
 @router.get("/report-sessions/sms-summaries/dates")
 async def get_sms_summary_dates():
     dates = set()
-    for metadata_path in report_session_store.sessions_dir.glob("*.json"):
+    for session, _ in available_report_sessions():
         try:
-            session = report_session_store.get(metadata_path.stem)
             has_sms_data = (
                 session
                 and session.report_date
@@ -1447,9 +1483,8 @@ async def get_sms_summary_dates():
 async def get_sms_summaries_by_date(report_date: str, station: str | None = None):
     station_val = station or "Juja"
     sessions_on_date: list[tuple[ReportSession, float]] = []
-    for metadata_path in report_session_store.sessions_dir.glob("*.json"):
+    for session, modified_at in available_report_sessions():
         try:
-            session = report_session_store.get(metadata_path.stem)
             if session and session.report_date == report_date:
                 session_station = classify_station(session.station or session.weighbridge_name)
                 matched = False
@@ -1461,7 +1496,7 @@ async def get_sms_summaries_by_date(report_date: str, station: str | None = None
                     matched = True
                 
                 if matched:
-                    sessions_on_date.append((session, metadata_path.stat().st_mtime))
+                    sessions_on_date.append((session, modified_at))
         except Exception:
             pass
 

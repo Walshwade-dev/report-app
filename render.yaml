@@ -4,13 +4,15 @@ services:
     runtime: docker
     branch: main
     rootDir: backend
-    healthCheckPath: /health
+    healthCheckPath: /health/persistence
     preDeployCommand: alembic upgrade head
     envVars:
       - key: APP_ENV
         value: production
       - key: FRONTEND_ORIGINS
         value: https://dnkreport.netlify.app
+      - key: ADMIN_PASSWORD
+        sync: false
       - key: DATABASE_URL
         fromDatabase:
           name: report-app-db

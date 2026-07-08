@@ -107,5 +107,6 @@ def temp_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture
-def client(temp_store):
+def client(temp_store, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("ADMIN_PASSWORD", "test-admin-password")
     return SandboxTestClient(app)

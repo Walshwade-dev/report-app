@@ -9,6 +9,7 @@ from typing import Any
 from uuid import uuid4
 
 import pandas as pd
+from dotenv import load_dotenv
 
 from app.services.daily_summary_processor import (
     DailySummaryMissingSourceError,
@@ -18,6 +19,8 @@ from app.repositories.report_repository import ReportRepository
 from app.services.traffic_census_processor import normalize_traffic_census_input
 from app.services.transgressions_processor import normalize_transgressions_input
 
+
+load_dotenv()
 
 STORAGE_ROOT = Path(
     os.getenv("REPORT_STORAGE_ROOT", Path(__file__).resolve().parents[1] / "storage")

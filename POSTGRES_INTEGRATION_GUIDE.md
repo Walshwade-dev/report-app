@@ -56,6 +56,8 @@ Ensure `.env` contains:
 ```env
 DATABASE_URL=postgresql+psycopg://report_app_user:report_app_password@localhost:5432/report_app_db
 APP_ENV=development
+REPORT_STORAGE_ROOT=./app/storage
+ADMIN_PASSWORD=replace-with-a-strong-admin-password
 ```
 
 ## Install Dependencies
@@ -132,11 +134,16 @@ docker compose exec db psql -U report_app_user -d report_app_db \
 
 ## Delete Bad or Mis-Uploaded Sessions
 
-Admins can delete a session through the dashboard recent workspaces list, or
-directly through the API:
+Report history and deletion are admin-only operations. The frontend exposes
+them from the `/admin` page, which prompts for `ADMIN_PASSWORD` and sends it to
+the backend as the `X-Admin-Password` header.
+
+Admins can delete a session through the admin console, or directly through the
+API:
 
 ```bash
-curl -X DELETE http://127.0.0.1:8000/api/report-sessions/<report_id>
+curl -X DELETE http://127.0.0.1:8000/api/report-sessions/<report_id> \
+  -H "X-Admin-Password: $ADMIN_PASSWORD"
 ```
 
 This removes the session metadata, upload folders, processed DataFrames,
@@ -149,7 +156,8 @@ Use the report-session listing endpoint to read saved report metadata from
 PostgreSQL for a future report history or dashboard view:
 
 ```bash
-curl 'http://127.0.0.1:8000/api/report-sessions?limit=20&offset=0'
+curl 'http://127.0.0.1:8000/api/report-sessions?limit=20&offset=0' \
+  -H "X-Admin-Password: $ADMIN_PASSWORD"
 ```
 
 Optional query parameters:
@@ -191,6 +199,27 @@ and enriches each session with history fields. Internal file paths are not
 exposed; `download_available` is calculated from report status, output metadata,
 and the generated file's presence on disk when that check is available.
 
+## Backfill Existing File Metadata Into PostgreSQL
+
+If a deployment already has JSON report sessions on disk, use the backfill
+script to copy existing metadata into PostgreSQL:
+
+```bash
+cd backend
+.venv/bin/python scripts/backfill_report_metadata.py
+```
+
+The script persists:
+
+- Report/session metadata into `reports`
+- Manual input payloads into `report_manual_inputs`
+- Upload file metadata into `report_uploads`
+- Ready final output metadata into `report_outputs`
+
+It does not copy file bytes into PostgreSQL. Uploaded files, processed
+DataFrames, previews, and generated documents remain on the filesystem under
+`REPORT_STORAGE_ROOT`.
+
 ## Manual Verification Checklist
 
 - Create a report session and confirm a row appears in `reports`.
@@ -201,11 +230,79 @@ and the generated file's presence on disk when that check is available.
 - Build the final report and confirm `reports.status = completed`.
 - Confirm generated file path appears in `report_outputs`.
 - Download the final report and confirm the file still comes from filesystem storage.
-- Delete a bad session and confirm its files and database metadata are gone.
-- Call `GET /api/report-sessions` and confirm saved sessions are returned newest
-  first with upload, manual-input, and download availability fields.
+- Delete a bad session with `X-Admin-Password` and confirm its files and
+  database metadata are gone.
+- Call `GET /api/report-sessions` with `X-Admin-Password` and confirm saved
+  sessions are returned newest first with upload, manual-input, and download
+  availability fields.
+- Call `/api/report-sessions/analytics/dashboard` and confirm dashboard values
+  reflect uploaded/static/mobile report data.
 
 ## Troubleshooting
+
+### Production Persistence on Render
+
+Check the deployed backend persistence status:
+
+```bash
+curl https://report-app-px6c.onrender.com/health/persistence
+```
+
+The expected production response has:
+
+```json
+{
+  "status": "ok",
+  "persistence_required": true,
+  "database": {
+    "configured": true,
+    "connected": true,
+    "error": null
+  },
+  "storage": {
+    "configured": true,
+    "root": "/var/data/report-app-storage"
+  }
+}
+```
+
+If `database.configured` is `false`, set `DATABASE_URL` on the Render web
+service from the Render Postgres internal connection string. If
+`storage.configured` is `false`, set `REPORT_STORAGE_ROOT` to:
+
+```env
+REPORT_STORAGE_ROOT=/var/data/report-app-storage
+```
+
+Also set:
+
+```env
+APP_ENV=production
+ADMIN_PASSWORD=<your-admin-password>
+```
+
+The Render service must also have a persistent disk mounted at `/var/data`.
+After changing environment variables, redeploy the service and run:
+
+```bash
+alembic upgrade head
+```
+
+The production health check uses `/health/persistence`, so Render will mark the
+service unhealthy if PostgreSQL or persistent storage is not configured.
+
+Current production verification completed on 2026-07-08:
+
+```text
+https://report-app-px6c.onrender.com/health/persistence
+database.configured = true
+database.connected = true
+storage.root = /var/data/report-app-storage
+```
+
+A real JUJA static report was created through the production API and the
+dashboard returned non-zero values, confirming new report metadata persists
+through PostgreSQL and the analytics endpoint can read it.
 
 Check database container:
 

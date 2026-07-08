@@ -7,6 +7,9 @@ from app.routes import reports
 from app.services.report_session_store import ReportSessionStore
 
 
+ADMIN_HEADERS = {"X-Admin-Password": "test-admin-password"}
+
+
 def create_session(client):
     response = client.post(
         "/api/report-sessions",
@@ -146,13 +149,30 @@ def test_report_session_delete_removes_metadata_and_artifacts(client, temp_store
     assert metadata_path.exists()
     assert upload_path.exists()
 
-    response = client.delete(f"/api/report-sessions/{report_id}")
+    response = client.delete(
+        f"/api/report-sessions/{report_id}",
+        headers=ADMIN_HEADERS,
+    )
 
     assert response.status_code == 200
     assert response.json() == {"status": "deleted", "report_id": report_id}
     assert not metadata_path.exists()
     assert not upload_path.exists()
     assert client.get(f"/api/report-sessions/{report_id}").status_code == 404
+
+
+def test_report_session_history_requires_admin_password(client):
+    response = client.get("/api/report-sessions")
+
+    assert response.status_code == 401
+
+
+def test_report_session_delete_requires_admin_password(client):
+    report_id = create_session(client)["report_id"]
+
+    response = client.delete(f"/api/report-sessions/{report_id}")
+
+    assert response.status_code == 401
 
 
 def test_report_session_history_listing_returns_newest_first(client, temp_store):
@@ -164,7 +184,7 @@ def test_report_session_history_listing_returns_newest_first(client, temp_store)
     os.utime(older_path, (1000, 1000))
     os.utime(newer_path, (2000, 2000))
 
-    response = client.get("/api/report-sessions")
+    response = client.get("/api/report-sessions", headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     payload = response.json()
@@ -180,7 +200,10 @@ def test_report_session_history_status_filter(client, temp_store):
     completed_id = create_session(client)["report_id"]
     temp_store.set_final_report(completed_id, b"final report")
 
-    response = client.get("/api/report-sessions?status=completed")
+    response = client.get(
+        "/api/report-sessions?status=completed",
+        headers=ADMIN_HEADERS,
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -193,7 +216,10 @@ def test_report_session_history_upload_completion(client, temp_store):
     report_id = create_session(client)["report_id"]
     seed_required_sections(temp_store, report_id)
 
-    response = client.get(f"/api/report-sessions?search={report_id}")
+    response = client.get(
+        f"/api/report-sessions?search={report_id}",
+        headers=ADMIN_HEADERS,
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -206,7 +232,10 @@ def test_report_session_history_final_report_availability(client, temp_store):
     report_id = create_session(client)["report_id"]
     temp_store.set_final_report(report_id, b"final report")
 
-    response = client.get(f"/api/report-sessions?search={report_id}")
+    response = client.get(
+        f"/api/report-sessions?search={report_id}",
+        headers=ADMIN_HEADERS,
+    )
 
     assert response.status_code == 200
     payload = response.json()

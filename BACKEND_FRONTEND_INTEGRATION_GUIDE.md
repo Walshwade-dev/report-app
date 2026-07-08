@@ -17,11 +17,11 @@ This document should be updated after every backend implementation step. Each ti
 ### Current Status Snapshot
 
 ```text
-Status date: 2026-07-03
+Status date: 2026-07-08
 Backend framework: FastAPI
 Frontend: Separate Next.js frontend is being integrated with this backend API
-Current backend mode: Section generators plus filesystem-backed report-session API, including mobile/weighbridge register extraction, refined mobile Word report formatting, SMS summary builders, and locked signatory details
-Current integration mode: Frontend-facing upload/preview/build/download/SMS endpoints are wired for implemented sections with restart recovery; local frontend is targeting the local backend at http://127.0.0.1:8000
+Current backend mode: Section generators plus PostgreSQL-backed report metadata, persistent filesystem artifacts, mobile/weighbridge register extraction, refined mobile Word report formatting, SMS summary builders, and locked signatory details
+Current integration mode: Frontend-facing upload/preview/build/download/SMS/dashboard endpoints are wired for implemented sections with restart recovery; report history and deletion are admin-password gated; local frontend is targeting the local backend at http://127.0.0.1:8000 or http://127.0.0.1:8001 when 8000 is occupied
 ```
 
 ### Completed
@@ -44,6 +44,12 @@ Manual test script exists for daily/hour report generation
 Manual test script exists for final report generation
 Backend/frontend integration guide exists
 Report-session store exists with filesystem-backed metadata and artifact persistence
+Report-session metadata is also persisted in PostgreSQL for production dashboard/history recovery
+PostgreSQL migrations exist for reports, uploads, manual inputs, previews, and final outputs
+Production persistence health endpoint verifies database connection, migrations, and storage configuration
+Production database write failures raise instead of silently falling back
+Backfill script exists for copying existing JSON session metadata into PostgreSQL
+Admin password protection exists for report history listing and report deletion
 Frontend-facing report-session routes exist
 Daily/hour upload endpoint exists in report-session flow
 Wideload upload endpoint exists in report-session flow
@@ -113,12 +119,13 @@ SMS summary API endpoints exist for retrieving date lists and formatted summarie
 Impounded/prohibited calculation corrected to P = Z + R formula
 Approved By/Confirmed By signatory locked to Faith Njani
 Developer Ticket & Prompt Portal page implemented for logging flaws and generating instructions
+Admin console exists in the frontend for password-gated report history and delete controls
 ```
 
 ### In Progress
 
 ```text
-Documenting the integration endpoints, locked signatories, and developer portals.
+Documenting PostgreSQL-backed production persistence, admin controls, and deployment verification.
 ```
 
 ### Pending
@@ -168,41 +175,51 @@ Use this section as the running project history.
 2026-05-14 - Added mobile Word report generation and download endpoint using uploaded mobile register data and mobile manual inputs.
 2026-06-19 - Refined mobile Excel report styling: updated column O:X width to 0.75", rotated chart x-axis 45 degrees, updated note block merging and rich text bolding, enforced black text, and applied a lighter grey fill (#F2F2F2) with adjusted borders for table headers. Updated the generated file name to use the .xls extension and matched the format JUJA WEIGHBRIDGE MOBILE REPORT 1 19.06.26.xls.
 2026-07-03 - Refined mobile Word report output: moved repeated mobile report title to centered headers, restored formatted footer with reference/date/page fields, tuned Section 2 chart scale/labels/axis styling, added prepared/approved textbox, refined Location Report formatting, adjusted mobile dates, and kept full Danka/police values in vehicle detail rows.
+2026-07-08 - Added PostgreSQL-backed report metadata persistence for production dashboard/history, persistent Render storage health checks, production DB failure surfacing, metadata backfill script, and admin-password gating for report history and deletion.
+2026-07-08 - Verified production PostgreSQL connectivity and seeded a real JUJA NAIROBI BOUND report through the live API; dashboard returned non-zero values.
 ```
 
 ### Latest Backend Implementation Step
 
 ```text
 Files changed:
-- backend/app/services/mobile_word_report_builder.py
-- backend/tests/test_upload_build_flow.py
+- backend/app/main.py
+- backend/app/repositories/report_repository.py
+- backend/app/routes/reports.py
+- backend/app/services/report_session_store.py
+- backend/scripts/backfill_report_metadata.py
+- backend/tests/test_persistence_health.py
+- backend/tests/test_report_session_api.py
+- backend/.env.example
+- render.yaml
+- POSTGRES_INTEGRATION_GUIDE.md
 - BACKEND_FRONTEND_INTEGRATION_GUIDE.md
 
-Behavior refined:
-- Mobile Word report title now renders in the section header as centered `JUJA MOBILE DAILY REPORT 1` style text, instead of being repeated as body content.
-- Mobile Word footer now uses `KeNHA/WB/MTCE/4339/2025`, the centered `{STATION} MOBILE REPORT 1 {DATE}` label, and right-aligned `Page {PAGE} of {NUMPAGES}` Word fields.
-- Section 2 daily/hour chart now uses y-axis allowances of `n + 2` for values up to 15 and `n + 5` for values above 20, while preserving the configured tick intervals.
-- Section 2 chart legend labels are `WEIGHED` and `CHARGED`; the previous grey x-axis caption is removed, tick notches are hidden, and only horizontal gridlines remain.
-- Section 1 daily/hour dates keep four-letter month names such as `JUNE`; Section 6 vehicle detail dates use three-letter month names such as `JUN`.
-- Prepared by / Approved by values now render in a left-aligned Word textbox immediately below the daily/hour statistics table.
-- Section 6 vehicle detail Danka staff and police officer cells include the full slash-separated manual input lists in every row.
-- Location Report table headers use Arial 12pt, data cells use Calibri 14pt, and Actual Route / Danka Personnel / Police Officers notes use the refined spacing and slash-separated single-line formatting.
+Behavior added:
+- Report/session metadata is persisted in PostgreSQL while uploads, processed DataFrames, previews, and generated outputs remain on persistent filesystem storage.
+- `/health/persistence` verifies PostgreSQL configuration, database connectivity, migration presence, storage root configuration, and storage directory availability.
+- Render health checks now target `/health/persistence` so production does not appear healthy if PostgreSQL or persistent storage is missing.
+- Production database write failures are raised instead of silently dropping report metadata.
+- Report history listing and report deletion require `X-Admin-Password`.
+- Existing JSON session metadata can be backfilled into PostgreSQL with `scripts/backfill_report_metadata.py`.
+- Dashboard/SMS analytics load sessions through the unified report-session store so PostgreSQL-backed report IDs remain visible.
 
 Rationale:
-- These refinements align the generated mobile Word report with the latest visual review feedback without changing API routes or the upload/build/download flow.
-- The changes are isolated to mobile Word rendering and its API regression coverage.
+- The dashboard depends on persisted report metadata and should keep working after Render restarts and redeploys.
+- Report history and deletion are administrative controls and should not be visible or callable by ordinary users.
+- The backend should fail loudly in production if PostgreSQL or persistent storage is misconfigured.
 
 Tests and verification:
-- Expanded API coverage for `/download-mobile-word-report` to verify header title placement, footer text/tab stops, prepared/approved textbox XML, chart scale/axis/legend behavior, mobile date formatting, vehicle detail staff/officer mapping, and Location Report formatting.
-- `PYTHONPATH=backend MPLCONFIGDIR=/tmp/matplotlib-cache backend/.venv/bin/python -m pytest backend/tests -q` passes.
+- `backend/.venv/bin/python -m pytest tests/test_report_session_api.py tests/test_persistence_health.py` passes.
+- Production `/health/persistence` reports `database.configured=true`, `database.connected=true`, and storage rooted at `/var/data/report-app-storage`.
+- A real JUJA NAIROBI BOUND report was created through the production API, source files were uploaded, manual inputs were saved, and `/api/report-sessions/analytics/dashboard` returned non-zero values.
 
 Limitations:
-- Mobile report extraction is available to the API and session store, and separate mobile Excel and Word reports can be downloaded.
-- The current summary classifies overloads from non-empty Excess or positive Excess [KG]; any station-specific action mapping can be added once those business rules are confirmed.
-- Further polish can tune exact row heights, margins, and typography after visual review in Word or LibreOffice.
+- `ADMIN_PASSWORD` must be set in Render before the protected history/delete endpoints are deployed.
+- Existing production JSON session metadata must be backfilled once per deployment environment if it predates PostgreSQL persistence.
 
 Next recommended task:
-- Visually inspect a downloaded mobile Word sample in Word or LibreOffice after frontend upload/manual-input flow testing.
+- Deploy both backend and frontend changes, confirm `/admin` unlocks with the configured password, and confirm ordinary users receive `401` for report-history/delete API calls without the header.
 ```
 
 ## Mobile Word Report Sample Analysis

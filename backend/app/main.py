@@ -1,8 +1,12 @@
 import os
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
+
+load_dotenv()
 
 from app.core.database import SessionLocal, is_database_configured
 from app.routes.reports import router as reports_router
@@ -68,6 +72,10 @@ async def health():
     return {"status": "ok"}
 
 
+def _requires_persistence() -> bool:
+    return os.getenv("APP_ENV", "production") == "production"
+
+
 @app.get("/health/persistence")
 async def persistence_health():
     database_connected = False
@@ -77,28 +85,50 @@ async def persistence_health():
         try:
             with SessionLocal() as session:
                 session.execute(text("select 1"))
+                session.execute(text("select 1 from reports limit 1"))
             database_connected = True
         except Exception as exc:
             database_error = exc.__class__.__name__
 
     storage_root = report_session_store.storage_root
+    storage_dirs_exist = {
+        "sessions": report_session_store.sessions_dir.exists(),
+        "uploads": report_session_store.uploads_dir.exists(),
+        "processed": report_session_store.processed_dir.exists(),
+        "final_reports": report_session_store.final_reports_dir.exists(),
+    }
+    storage_configured = bool(os.getenv("REPORT_STORAGE_ROOT"))
+    persistence_required = _requires_persistence()
+    persistence_ready = (
+        database_connected
+        and storage_configured
+        and storage_root.exists()
+        and all(storage_dirs_exist.values())
+    )
 
-    return {
-        "status": "ok",
+    payload = {
+        "status": "ok" if persistence_ready or not persistence_required else "error",
+        "persistence_required": persistence_required,
         "database": {
             "configured": is_database_configured(),
             "connected": database_connected,
             "error": database_error,
         },
         "storage": {
+            "configured": storage_configured,
             "root": str(storage_root),
             "exists": storage_root.exists(),
-            "sessions_dir_exists": report_session_store.sessions_dir.exists(),
-            "uploads_dir_exists": report_session_store.uploads_dir.exists(),
-            "processed_dir_exists": report_session_store.processed_dir.exists(),
-            "final_reports_dir_exists": report_session_store.final_reports_dir.exists(),
+            "sessions_dir_exists": storage_dirs_exist["sessions"],
+            "uploads_dir_exists": storage_dirs_exist["uploads"],
+            "processed_dir_exists": storage_dirs_exist["processed"],
+            "final_reports_dir_exists": storage_dirs_exist["final_reports"],
         },
     }
+
+    if persistence_required and not persistence_ready:
+        return JSONResponse(status_code=503, content=payload)
+
+    return payload
 
 
 # ---------------------------------------------------------------------------
