@@ -110,3 +110,25 @@ def temp_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 def client(temp_store, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ADMIN_PASSWORD", "test-admin-password")
     return SandboxTestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def clean_database():
+    from app.core.database import SessionLocal
+    from app.db.models import Report, ReportUpload, ReportManualInput, ReportPreview, ReportOutput
+
+    if SessionLocal is not None:
+        session = SessionLocal()
+        try:
+            session.query(ReportOutput).delete()
+            session.query(ReportPreview).delete()
+            session.query(ReportManualInput).delete()
+            session.query(ReportUpload).delete()
+            session.query(Report).delete()
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+

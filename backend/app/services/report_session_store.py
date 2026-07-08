@@ -168,6 +168,7 @@ class ReportSessionStore:
             report_id = metadata_path.stem
             self._remove_session_artifacts(report_id)
             self._sessions.pop(report_id, None)
+            self.repository.delete_report(report_id)
             deleted_report_ids.append(report_id)
 
         return deleted_report_ids
@@ -320,6 +321,17 @@ class ReportSessionStore:
         )
         self._sessions[report_id] = session
         self._save_metadata(session)
+
+        if self.repository.enabled:
+            self.repository.upsert_manual_inputs(
+                report_id=report_id,
+                manual_inputs=session.manual_inputs,
+                prepared_by=prepared_by,
+                approved_by=confirmed_by,
+                weighbridge_name=weighbridge_name or station,
+                bound_name=bound,
+            )
+
         return session
 
     def update_metadata(
@@ -648,6 +660,15 @@ class ReportSessionStore:
         self._refresh_daily_summary_status(session)
         self._invalidate_generated_outputs(session)
         self._save_metadata(session)
+
+        if filename and self.repository.enabled:
+            self.repository.upsert_upload_metadata(
+                report_id=report_id,
+                upload_type=section,
+                original_filename=filename,
+                file_path=processed_path,
+                file_size_bytes=int(processed_path.stat().st_size) if processed_path.exists() else 0,
+            )
         return session
 
     def set_section_error(self, report_id: str, section: str, message: str) -> ReportSession:
