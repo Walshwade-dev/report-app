@@ -240,17 +240,18 @@ class ReportSessionStore:
         if processed_dir.exists():
             for dataframe_path in processed_dir.glob("*.pkl"):
                 section = dataframe_path.stem
-                session.dataframes[section] = pd.read_pickle(dataframe_path)
+                df = pd.read_pickle(dataframe_path)
+                if isinstance(df, pd.DataFrame):
+                    session.dataframes[section] = df
 
-        self._refresh_daily_summary_status(session)
+        if session.sections.get("daily_summary", {}).get("status") != "ready":
+            self._refresh_daily_summary_status(session)
 
         final_report_path = self._final_report_path(report_id)
         if session.final_report_status == "ready" and final_report_path.exists():
             session.final_report = final_report_path.read_bytes()
-        elif session.final_report_status == "ready":
-            session.final_report_status = "not_built"
-            session.final_report_error = "Final report file is missing from storage."
-            self._save_metadata(session)
+        else:
+            session.final_report = None
 
         self._sessions[report_id] = session
         return session
@@ -625,7 +626,7 @@ class ReportSessionStore:
         section_state: dict[str, Any] = {
             "status": "ready",
             "filename": filename,
-            "rows": int(len(dataframe)),
+            "rows": len(dataframe),
             "columns": dataframe.columns.tolist(),
             "preview": [
                 {
@@ -667,7 +668,7 @@ class ReportSessionStore:
                 upload_type=section,
                 original_filename=filename,
                 file_path=processed_path,
-                file_size_bytes=int(processed_path.stat().st_size) if processed_path.exists() else 0,
+                file_size_bytes=processed_path.stat().st_size if processed_path.exists() else 0,
             )
         return session
 

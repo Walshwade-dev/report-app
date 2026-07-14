@@ -143,12 +143,10 @@ def get_mobile_report_filename(session: ReportSession, ext: str) -> str:
 
 def serialize_session(session: ReportSession) -> dict:
     excel_report_ready = (
-        "daily_hour" in session.dataframes
-        and session.sections.get("daily_hour", {}).get("status") == "ready"
+        session.sections.get("daily_hour", {}).get("status") == "ready"
     )
     mobile_excel_report_ready = (
-        "mobile_report" in session.dataframes
-        and session.sections.get("mobile_report", {}).get("status") == "ready"
+        session.sections.get("mobile_report", {}).get("status") == "ready"
     )
     mobile_word_report_ready = mobile_excel_report_ready
     final_report = {
