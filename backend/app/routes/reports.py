@@ -705,16 +705,18 @@ async def get_analytics_dashboard(
         called = daily_hour_total_column(s, "C") or 0
         cases = s.manual_inputs.get("cases_cleared_in_court", 0) or 0
 
-        code = classify_station(s.station or s.weighbridge_name)
-        if code and code in stations_data:
-            overload_no_permit = max(y - g, 0)
-            compliant = max(called - overload_no_permit, 0)
+        if selected_static_date and report_date == selected_static_date:
+            code = classify_station(s.station or s.weighbridge_name)
+            if code and code in stations_data:
+                overload_no_permit = max(y - g, 0)
+                compliant = max(called - overload_no_permit, 0)
 
-            stations_data[code]["traffic"][bound_key] += x
-            stations_data[code]["cases"][bound_key] += cases
-            stations_data[code]["compliance"][bound_key]["calledIn"] += called
-            stations_data[code]["compliance"][bound_key]["weighed"] += x
-            stations_data[code]["compliance"][bound_key]["compliant"] += compliant
+                stations_data[code]["traffic"][bound_key] += x
+                stations_data[code]["cases"][bound_key] += cases
+                stations_data[code]["compliance"][bound_key]["calledIn"] += called
+                stations_data[code]["compliance"][bound_key]["weighed"] += x
+                stations_data[code]["compliance"][bound_key]["compliant"] += compliant
+
 
         if selected_static_date and report_date == selected_static_date:
             if s.bound:

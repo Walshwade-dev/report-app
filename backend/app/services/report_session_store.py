@@ -272,18 +272,40 @@ class ReportSessionStore:
 
     def _load_session_from_disk(self, report_id: str) -> ReportSession | None:
         metadata_path = self._session_metadata_path(report_id)
+        payload = None
 
         if self.repository.enabled:
             payload = self.repository.load_session_snapshot(report_id)
-        elif metadata_path.exists():
-            payload = json.loads(metadata_path.read_text(encoding="utf-8"))
-        else:
-            payload = None
+
+        # Fallback to local disk if db snapshot is not found/empty
+        if not payload and metadata_path.exists():
+            try:
+                payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except Exception:
+                logger.exception("Failed to parse local metadata JSON for %s", report_id)
 
         if not payload:
             return None
 
-        return self._session_from_metadata_payload(payload)
+        session = self._session_from_metadata_payload(payload)
+
+        # If it was only on disk, migrate it to the database
+        if self.repository.enabled and not self.repository.load_session_snapshot(report_id):
+            try:
+                self._save_metadata(session)
+                # Also save manual inputs
+                self.repository.upsert_manual_inputs(
+                    report_id=report_id,
+                    manual_inputs=session.manual_inputs,
+                    prepared_by=session.prepared_by,
+                    approved_by=session.confirmed_by,
+                    weighbridge_name=session.weighbridge_name,
+                    bound_name=session.bound,
+                )
+            except Exception:
+                logger.exception("Failed to auto-migrate session %s to PostgreSQL", report_id)
+
+        return session
 
     def _invalidate_generated_outputs(self, session: ReportSession) -> None:
         preview_dir = self._preview_session_dir(session.report_id)
@@ -410,9 +432,10 @@ class ReportSessionStore:
         return session
 
     def list_report_ids(self) -> list[str]:
-        if self.repository.enabled:
-            return self.repository.list_report_ids()
         file_ids = [path.stem for path in self.sessions_dir.glob("*.json")]
+        if self.repository.enabled:
+            db_ids = self.repository.list_report_ids()
+            return list(dict.fromkeys(db_ids + file_ids))
         return list(dict.fromkeys(sorted(file_ids)))
 
     def _session_metadata_mtime(self, report_id: str) -> datetime:
