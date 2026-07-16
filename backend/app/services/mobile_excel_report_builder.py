@@ -136,7 +136,7 @@ def _set_cell(
     wrap_text: bool | None = True,
     number_format: str = "General",
 ) -> None:
-    cell = ws[coordinate]
+    cell: Any = ws[coordinate]
     cell.value = value
     cell.font = _font(size=size, bold=bold, name=font_name)
     cell.alignment = _alignment(horizontal, vertical, wrap_text)
@@ -281,7 +281,7 @@ def _merge_and_set_note_row(
         wrap_text=False,
     )
     ws.merge_cells(cell_range)
-    cell = ws[cell_range.split(":", 1)[0]]
+    cell: Any = ws[cell_range.split(":", 1)[0]]
     cell.value = _note_key_value(key, value)
 
 
@@ -309,6 +309,11 @@ def _manual_source(session) -> dict[str, Any]:
     mobile = session.manual_inputs.get("mobile_report")
     if isinstance(mobile, dict):
         return mobile
+
+    extra = session.manual_inputs.get("extra")
+    if isinstance(extra, dict) and isinstance(extra.get("mobile_report"), dict):
+        return extra["mobile_report"]
+
     return {}
 
 
@@ -609,7 +614,8 @@ def _add_hourly_summary_chart(ws: Worksheet) -> None:
     chart.varyColors = False
     chart.height = 7.5
     chart.width = 15
-    chart.legend.position = "b"
+    legend_any: Any = chart.legend
+    legend_any.position = "b"
     chart.dataLabels = DataLabelList()
     chart.dataLabels.showLegendKey = False
     chart.dataLabels.showVal = False
@@ -624,7 +630,8 @@ def _add_hourly_summary_chart(ws: Worksheet) -> None:
     chart.set_categories(categories)
 
     line_colors = (DARK_BLUE_LINE, MAROON_LINE)
-    for series, color in zip(chart.ser, line_colors):
+    series_list: Any = chart.ser
+    for series, color in zip(series_list, line_colors):
         series.smooth = False
         series.marker.symbol = "none"
         series.graphicalProperties.line.width = 28575
@@ -632,28 +639,31 @@ def _add_hourly_summary_chart(ws: Worksheet) -> None:
         series.graphicalProperties.line.round = True
         series.graphicalProperties.line.solidFill = color
 
-    chart.x_axis.axId = 1549586240
-    chart.y_axis.axId = 1549567520
-    chart.x_axis.crossAx = 1549567520
-    chart.y_axis.crossAx = 1549586240
-    chart.x_axis.axPos = "b"
-    chart.y_axis.axPos = "l"
-    chart.x_axis.crosses = "autoZero"
-    chart.y_axis.crosses = "autoZero"
-    chart.y_axis.crossBetween = "between"
-    chart.x_axis.tickLblPos = "nextTo"
-    chart.y_axis.tickLblPos = "nextTo"
-    chart.x_axis.number_format = "General"
-    chart.y_axis.number_format = "General"
-    chart.x_axis.textProperties = _chart_axis_text_properties()
-    chart.y_axis.textProperties = _chart_axis_text_properties()
-    chart.y_axis.spPr = GraphicalProperties(ln=LineProperties(noFill=True))
-    chart.x_axis.majorTickMark = "none"
-    chart.x_axis.minorTickMark = "none"
-    chart.y_axis.majorTickMark = "none"
-    chart.y_axis.minorTickMark = "none"
+    x_axis: Any = chart.x_axis
+    y_axis: Any = chart.y_axis
+    x_axis.axId = 1549586240
+    y_axis.axId = 1549567520
+    x_axis.crossAx = 1549567520
+    y_axis.crossAx = 1549586240
+    x_axis.axPos = "b"
+    y_axis.axPos = "l"
+    x_axis.crosses = "autoZero"
+    y_axis.crosses = "autoZero"
+    y_axis.crossBetween = "between"
+    x_axis.tickLblPos = "nextTo"
+    y_axis.tickLblPos = "nextTo"
+    x_axis.number_format = "General"
+    y_axis.number_format = "General"
+    x_axis.textProperties = _chart_axis_text_properties()
+    y_axis.textProperties = _chart_axis_text_properties()
+    y_axis.spPr = GraphicalProperties(ln=LineProperties(noFill=True))
+    x_axis.majorTickMark = "none"
+    x_axis.minorTickMark = "none"
+    y_axis.majorTickMark = "none"
+    y_axis.minorTickMark = "none"
 
-    chart.anchor = TwoCellAnchor(
+    chart_any: Any = chart
+    chart_any.anchor = TwoCellAnchor(
         _from=AnchorMarker(col=13, colOff=728385, row=3, rowOff=51548),
         to=AnchorMarker(col=23, colOff=67238, row=27, rowOff=156883),
     )
@@ -794,17 +804,17 @@ def build_mobile_excel_report(session) -> io.BytesIO:
     except AttributeError:
         pass
 
-    summary_ws = wb.active
+    summary_ws: Any = wb.active
     _setup_summary_sheet(summary_ws)
     _write_summary_rows(summary_ws, records, report_date, summary, session)
     _add_hourly_summary_chart(summary_ws)
 
-    detail_ws = wb.create_sheet("Mobile Daily Report")
+    detail_ws: Any = wb.create_sheet("Mobile Daily Report")
     _setup_detail_sheet(detail_ws, title)
     _write_manual_header(detail_ws, session, report_date, summary)
     _write_detail_rows(detail_ws, records, session, report_date)
 
-    hidden_ws = wb.create_sheet("Sheet3")
+    hidden_ws: Any = wb.create_sheet("Sheet3")
     hidden_ws.sheet_state = "hidden"
 
     stream = io.BytesIO()

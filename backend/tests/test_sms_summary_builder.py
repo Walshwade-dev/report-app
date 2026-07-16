@@ -79,3 +79,39 @@ def test_sms_summary_mobile():
     assert "Kilometers covered=150KMS" in summary
     assert "Vehicle used:- KDS042Z" in summary
     assert "By:-ANASTASHA KENDA." in summary
+
+
+def test_sms_summary_metadata_fallback():
+    session = ReportSession(
+        report_id="test_static_id_fallback",
+        report_date="2026-06-25",
+        station="Juja",
+        bound="Thika Bound",
+        weighbridge_name="Juja Weighbridge",
+        prepared_by="ANASTASHA KENDA",
+    )
+    
+    # We do NOT populate session.dataframes! It is empty.
+    # Instead, we populate the sections summary metadata.
+    session.sections["daily_hour"] = {
+        "status": "ready",
+        "summary": {
+            "D": 10, "S": 20, "M": 2, "H": 100, "Q": 90, "X": 32, "C": 10, "Y": 5, "P": 2, "A": 3, "Z": 1, "G": 1, "R": 1, "E": 0
+        }
+    }
+    session.manual_inputs["traffic_census"] = {"total_traffic_census": 500}
+    
+    # Verify fallback total retrieval
+    from app.services.sms_summary_builder import get_session_column_total
+    assert get_session_column_total(session, "daily_hour", "Q") == 90
+    assert get_session_column_total(session, "daily_hour", "X") == 32
+    
+    summary = build_static_sms_summary(session)
+    
+    assert "JUJA THIKA BOUND WB" in summary
+    assert "Date: 25.06.2026" in summary
+    assert "Called in(C)=10" in summary
+    assert "Weighed Hswim(Q)=90" in summary
+    assert "T.traffic census(K)=500" in summary
+    assert "T.traffic (T)=622" in summary
+    assert "By: ANASTASHA KENDA." in summary

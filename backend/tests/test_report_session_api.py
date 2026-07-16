@@ -124,8 +124,11 @@ def test_report_session_creation_persists_metadata(client, temp_store):
     payload = create_session(client)
     report_id = payload["report_id"]
 
-    metadata_path = temp_store.sessions_dir / f"{report_id}.json"
-    assert metadata_path.exists()
+    if temp_store.repository.enabled:
+        assert temp_store.repository.load_session_snapshot(report_id) is not None
+    else:
+        metadata_path = temp_store.sessions_dir / f"{report_id}.json"
+        assert metadata_path.exists()
 
     fetched = client.get(f"/api/report-sessions/{report_id}")
     assert fetched.status_code == 200
@@ -144,8 +147,11 @@ def test_report_session_delete_removes_metadata_and_artifacts(client, temp_store
         b"DATE,TIME\n",
     )
 
-    metadata_path = temp_store.sessions_dir / f"{report_id}.json"
-    assert metadata_path.exists()
+    if temp_store.repository.enabled:
+        assert temp_store.repository.load_session_snapshot(report_id) is not None
+    else:
+        metadata_path = temp_store.sessions_dir / f"{report_id}.json"
+        assert metadata_path.exists()
     assert upload_path.exists()
 
     response = client.delete(
@@ -155,7 +161,11 @@ def test_report_session_delete_removes_metadata_and_artifacts(client, temp_store
 
     assert response.status_code == 200
     assert response.json() == {"status": "deleted", "report_id": report_id}
-    assert not metadata_path.exists()
+    if temp_store.repository.enabled:
+        assert temp_store.repository.load_session_snapshot(report_id) is None
+    else:
+        metadata_path = temp_store.sessions_dir / f"{report_id}.json"
+        assert not metadata_path.exists()
     assert not upload_path.exists()
     assert client.get(f"/api/report-sessions/{report_id}").status_code == 404
 
@@ -177,11 +187,25 @@ def test_report_session_delete_requires_admin_password(client):
 def test_report_session_history_listing_returns_newest_first(client, temp_store):
     older_id = create_session(client)["report_id"]
     newer_id = create_session(client)["report_id"]
-    older_path = temp_store.sessions_dir / f"{older_id}.json"
-    newer_path = temp_store.sessions_dir / f"{newer_id}.json"
 
-    os.utime(older_path, (1000, 1000))
-    os.utime(newer_path, (2000, 2000))
+    if temp_store.repository.enabled:
+        from app.core.database import SessionLocal
+        from app.db.models import Report
+        from datetime import datetime, timezone, timedelta
+        
+        assert SessionLocal is not None
+        with SessionLocal() as db_session:
+            r1 = db_session.query(Report).filter(Report.id == older_id).first()
+            r2 = db_session.query(Report).filter(Report.id == newer_id).first()
+            if r1 and r2:
+                r1.updated_at = datetime.now(timezone.utc) - timedelta(days=1)
+                r2.updated_at = datetime.now(timezone.utc)
+                db_session.commit()
+    else:
+        older_path = temp_store.sessions_dir / f"{older_id}.json"
+        newer_path = temp_store.sessions_dir / f"{newer_id}.json"
+        os.utime(older_path, (1000, 1000))
+        os.utime(newer_path, (2000, 2000))
 
     response = client.get("/api/report-sessions", headers=ADMIN_HEADERS)
 

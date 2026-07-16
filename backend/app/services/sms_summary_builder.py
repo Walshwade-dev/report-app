@@ -32,9 +32,25 @@ def get_session_column_total(session: ReportSession, section_name: str, column: 
         section_name not in session.dataframes
         or session.sections.get(section_name, {}).get("status") != "ready"
     ):
+        section_data = session.sections.get(section_name, {})
+        if isinstance(section_data, dict) and "summary" in section_data:
+            summary = section_data["summary"]
+            if isinstance(summary, dict) and column in summary:
+                try:
+                    return int(summary[column])
+                except Exception:
+                    pass
         return 0
     df = session.dataframes[section_name]
     if "DATE" not in df.columns or column not in df.columns:
+        section_data = session.sections.get(section_name, {})
+        if isinstance(section_data, dict) and "summary" in section_data:
+            summary = section_data["summary"]
+            if isinstance(summary, dict) and column in summary:
+                try:
+                    return int(summary[column])
+                except Exception:
+                    pass
         return 0
     totals_mask = df["DATE"].astype(str).str.strip().str.lower().eq("totals")
     if not totals_mask.any():
@@ -72,11 +88,13 @@ def get_mobile_inputs(session: ReportSession) -> dict[str, Any]:
     return {}
 
 def build_static_sms_summary(session: ReportSession) -> str:
-    station_name = str(session.weighbridge_name or session.station or "JUJA").strip().upper()
+    station_val = session.weighbridge_name or session.station or "JUJA"
+    station_name = station_val.strip().upper()
     if "WEIGHBRIDGE" in station_name:
         station_name = station_name.replace("WEIGHBRIDGE", "").strip()
     
-    bound_name = str(session.bound or "").strip().upper()
+    bound_val = session.bound or ""
+    bound_name = bound_val.strip().upper()
     if "BOUND" not in bound_name and bound_name:
         bound_name = f"{bound_name} BOUND"
     
@@ -117,7 +135,8 @@ def build_static_sms_summary(session: ReportSession) -> str:
     ):
         F = count_valid_permit_vehicles(session.dataframes["overloaded"])
         
-    prepared_by = str(session.prepared_by or "").strip().upper()
+    prepared_by_val = session.prepared_by or ""
+    prepared_by = prepared_by_val.strip().upper()
     if not prepared_by:
         prepared_by = "ANASTASHA KENDA."
     else:
@@ -150,14 +169,15 @@ def build_static_sms_summary(session: ReportSession) -> str:
     return template
 
 def build_mobile_sms_summary(session: ReportSession) -> str:
-    station_name = str(session.station or "JUJA").strip().upper()
+    station_val = session.station or "JUJA"
+    station_name = station_val.strip().upper()
     if "juja" in station_name.lower():
         station_name = "JUJA W/B"
     else:
         if "WEIGHBRIDGE" in station_name:
             station_name = station_name.replace("WEIGHBRIDGE", "").strip()
             
-    bound_name = str(session.bound or "Mobile 1").strip()
+    bound_name = (session.bound or "Mobile 1").strip()
     team_name = "TEAM ONE"
     if "2" in bound_name or "two" in bound_name.lower():
         team_name = "TEAM TWO"
@@ -256,7 +276,8 @@ def build_mobile_sms_summary(session: ReportSession) -> str:
         except Exception:
             pass
             
-    prepared_by = str(session.prepared_by or "").strip().upper()
+    prepared_by_val = session.prepared_by or ""
+    prepared_by = prepared_by_val.strip().upper()
     if not prepared_by:
         prepared_by = "ANASTSHA KENDA."
     else:

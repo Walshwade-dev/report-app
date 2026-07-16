@@ -149,7 +149,7 @@ def serialize_session(session: ReportSession) -> dict:
         session.sections.get("mobile_report", {}).get("status") == "ready"
     )
     mobile_word_report_ready = mobile_excel_report_ready
-    final_report = {
+    final_report: dict[str, str | None] = {
         "status": session.final_report_status,
         "download_url": None,
         "error": session.final_report_error,
@@ -241,11 +241,27 @@ def daily_hour_total_column(session: ReportSession, column: str) -> int | None:
         "daily_hour" not in session.dataframes
         or session.sections.get("daily_hour", {}).get("status") != "ready"
     ):
+        daily_hour_section = session.sections.get("daily_hour", {})
+        if isinstance(daily_hour_section, dict) and "summary" in daily_hour_section:
+            summary = daily_hour_section["summary"]
+            if isinstance(summary, dict) and column in summary:
+                try:
+                    return int(summary[column])
+                except Exception:
+                    pass
         return None
 
     daily_df = session.dataframes["daily_hour"]
 
     if "DATE" not in daily_df.columns or column not in daily_df.columns:
+        daily_hour_section = session.sections.get("daily_hour", {})
+        if isinstance(daily_hour_section, dict) and "summary" in daily_hour_section:
+            summary = daily_hour_section["summary"]
+            if isinstance(summary, dict) and column in summary:
+                try:
+                    return int(summary[column])
+                except Exception:
+                    pass
         return None
 
     totals_mask = (
@@ -273,12 +289,20 @@ def available_report_sessions() -> list[tuple[ReportSession, float]]:
             if not session:
                 continue
 
-            metadata_path = report_session_store.sessions_dir / f"{report_id}.json"
-            modified_at = (
-                metadata_path.stat().st_mtime
-                if metadata_path.exists()
-                else float(total_ids - index)
-            )
+            summary = report_session_store.report_history_summary(report_id)
+            if summary and "updated_at" in summary:
+                u_at = summary["updated_at"]
+                if isinstance(u_at, datetime):
+                    modified_at = u_at.timestamp()
+                else:
+                    modified_at = float(u_at)
+            else:
+                metadata_path = report_session_store.sessions_dir / f"{report_id}.json"
+                modified_at = (
+                    metadata_path.stat().st_mtime
+                    if metadata_path.exists()
+                    else float(total_ids - index)
+                )
             sessions.append((session, modified_at))
         except Exception:
             logger.exception("Failed to load report session for analytics: %s", report_id)
@@ -730,7 +754,7 @@ async def get_analytics_dashboard(
 
     selected_session = None
     if selected_mobile:
-        selected_key = (selected_mobile["date"], selected_mobile["bound"])
+        selected_key = (str(selected_mobile["date"]), str(selected_mobile["bound"]))
         selected_session = latest_mobile_sessions[selected_key][0]
 
     mobile_summary = (
@@ -887,12 +911,31 @@ async def get_analytics_details():
 
 
 @router.get("/report-sessions/analytics/dms-performance")
-async def get_dms_performance():
+async def get_dms_performance(date: str | None = None):
+    if not date:
+        date = datetime.now().strftime("%Y-%m-%d")
+        
+    try:
+        filter_date = datetime.strptime(date, "%Y-%m-%d")
+    except Exception:
+        filter_date = datetime.now()
+
     latest_mobile_sessions: dict[tuple[str, str, str], tuple[ReportSession, float]] = {}
 
     for session, modified_at in available_report_sessions():
         try:
             if not session or session.sections.get("mobile_report", {}).get("status") != "ready":
+                continue
+
+            try:
+                session_date = datetime.strptime(session.report_date, "%Y-%m-%d")
+            except Exception:
+                continue
+
+            # Limit to sessions in the same month/year as the filter date, up to the filter date
+            if session_date.year != filter_date.year or session_date.month != filter_date.month:
+                continue
+            if session_date > filter_date:
                 continue
 
             station_key = (
@@ -906,7 +949,6 @@ async def get_dms_performance():
         except Exception:
             pass
 
-    now = datetime.now()
     stats: dict[str, dict] = {}
     report_count = 0
 
@@ -923,7 +965,7 @@ async def get_dms_performance():
         is_current_month = False
         try:
             report_date = datetime.strptime(session.report_date, "%Y-%m-%d")
-            is_current_month = report_date.year == now.year and report_date.month == now.month
+            is_current_month = report_date.year == filter_date.year and report_date.month == filter_date.month
         except Exception:
             pass
 
@@ -1081,7 +1123,7 @@ async def upload_wideload_file(report_id: str, file: UploadFile = File(...)):
         report_session_store.save_upload(report_id, "wideload", filename, content)
 
         cleaned_df = clean_with_template(raw_df, vehicle_inspection)
-        wideload_count = int(len(cleaned_df))
+        wideload_count = len(cleaned_df)
 
         updated = report_session_store.set_section_ready(
             report_id,

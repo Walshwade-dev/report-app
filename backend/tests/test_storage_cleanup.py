@@ -5,9 +5,21 @@ import pytest
 
 
 def set_metadata_age(store, report_id: str, age_hours: int) -> None:
-    metadata_path = store.sessions_dir / f"{report_id}.json"
-    timestamp = time.time() - (age_hours * 60 * 60)
-    os.utime(metadata_path, (timestamp, timestamp))
+    if store.repository.enabled:
+        from app.core.database import SessionLocal
+        from app.db.models import Report
+        from datetime import datetime, timezone, timedelta
+        
+        assert SessionLocal is not None
+        with SessionLocal() as db_session:
+            report = db_session.query(Report).filter(Report.id == report_id).first()
+            if report:
+                report.updated_at = datetime.now(timezone.utc) - timedelta(hours=age_hours)
+                db_session.commit()
+    else:
+        metadata_path = store.sessions_dir / f"{report_id}.json"
+        timestamp = time.time() - (age_hours * 60 * 60)
+        os.utime(metadata_path, (timestamp, timestamp))
 
 
 def write_artifact(root, report_id: str, filename: str = "artifact.txt") -> None:
@@ -33,7 +45,10 @@ def test_cleanup_deletes_old_session_and_all_artifacts(temp_store):
     deleted_report_ids = temp_store.cleanup_expired_sessions()
 
     assert deleted_report_ids == [report_id]
-    assert not (temp_store.sessions_dir / f"{report_id}.json").exists()
+    if temp_store.repository.enabled:
+        assert temp_store.repository.load_session_snapshot(report_id) is None
+    else:
+        assert not (temp_store.sessions_dir / f"{report_id}.json").exists()
     assert not (temp_store.uploads_dir / report_id).exists()
     assert not (temp_store.processed_dir / report_id).exists()
     assert not (temp_store.previews_dir / report_id).exists()
@@ -54,7 +69,10 @@ def test_cleanup_keeps_recent_session_and_artifacts(temp_store):
     deleted_report_ids = temp_store.cleanup_expired_sessions()
 
     assert deleted_report_ids == []
-    assert (temp_store.sessions_dir / f"{report_id}.json").exists()
+    if temp_store.repository.enabled:
+        assert temp_store.repository.load_session_snapshot(report_id) is not None
+    else:
+        assert (temp_store.sessions_dir / f"{report_id}.json").exists()
     assert (temp_store.previews_dir / report_id).exists()
     assert temp_store.get(report_id) is not None
 
@@ -72,7 +90,10 @@ def test_cleanup_ignores_missing_partial_artifact_folders(temp_store):
     deleted_report_ids = temp_store.cleanup_expired_sessions()
 
     assert deleted_report_ids == [report_id]
-    assert not (temp_store.sessions_dir / f"{report_id}.json").exists()
+    if temp_store.repository.enabled:
+        assert temp_store.repository.load_session_snapshot(report_id) is None
+    else:
+        assert not (temp_store.sessions_dir / f"{report_id}.json").exists()
     assert not (temp_store.uploads_dir / report_id).exists()
     assert not (temp_store.processed_dir / report_id).exists()
     assert not (temp_store.previews_dir / report_id).exists()

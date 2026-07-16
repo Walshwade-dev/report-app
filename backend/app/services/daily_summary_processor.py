@@ -177,10 +177,11 @@ def build_daily_summary(
 def build_daily_summary_from_session(session) -> dict[str, int]:
     missing_sources = []
 
-    if (
-        "daily_hour" not in session.dataframes
-        or session.sections.get("daily_hour", {}).get("status") != "ready"
-    ):
+    has_daily_hour = (
+        ("daily_hour" in session.dataframes and session.sections.get("daily_hour", {}).get("status") == "ready")
+        or (isinstance(session.sections.get("daily_hour"), dict) and "summary" in session.sections["daily_hour"])
+    )
+    if not has_daily_hour:
         missing_sources.append("daily_hour")
 
     if (
@@ -189,10 +190,11 @@ def build_daily_summary_from_session(session) -> dict[str, int]:
     ):
         missing_sources.append("traffic_census")
 
-    if (
-        "overloaded" not in session.dataframes
-        or session.sections.get("overloaded", {}).get("status") != "ready"
-    ):
+    has_overloaded = (
+        ("overloaded" in session.dataframes and session.sections.get("overloaded", {}).get("status") == "ready")
+        or (isinstance(session.sections.get("overloaded"), dict) and "valid_permit_count" in session.sections["overloaded"])
+    )
+    if not has_overloaded:
         missing_sources.append("overloaded")
 
     if missing_sources:
@@ -205,17 +207,72 @@ def build_daily_summary_from_session(session) -> dict[str, int]:
     )
 
     if overloaded_valid_permit_count is None:
-        overloaded_valid_permit_count = count_valid_permit_vehicles(
-            session.dataframes["overloaded"]
+        if "overloaded" in session.dataframes:
+            overloaded_valid_permit_count = count_valid_permit_vehicles(
+                session.dataframes["overloaded"]
+            )
+        else:
+            overloaded_valid_permit_count = 0
+
+    if "daily_hour" in session.dataframes:
+        return build_daily_summary(
+            daily_df=session.dataframes["daily_hour"],
+            traffic_census=session.manual_inputs["traffic_census"],
+            overloaded_valid_permit_count=overloaded_valid_permit_count,
+            manual_inputs=session.manual_inputs,
+        )
+    else:
+        summary = session.sections.get("daily_hour", {}).get("summary", {})
+        
+        def get_val(col):
+            try:
+                return int(summary.get(col, 0))
+            except Exception:
+                return 0
+        
+        q = get_val("Q")
+        d = get_val("D")
+        s = get_val("S")
+        m = get_val("M")
+        a = get_val("A")
+        z = get_val("Z")
+        g = get_val("G")
+        r = get_val("R")
+        e = get_val("E")
+        
+        n = d + s
+        x = d + s + m
+        traffic = normalize_traffic_census_input(session.manual_inputs["traffic_census"])
+        k = traffic["total_traffic_census"]
+        t = q + x + k + e
+        y = a + z + g + r
+        p = z + r
+        b = _manual_count(session.manual_inputs, "cases_cleared_in_court", "cases_cleared_court")
+        l = _transgressions_count(session.manual_inputs)
+        f = _normalize_non_negative_count(
+            overloaded_valid_permit_count,
+            "overloaded_valid_permit_count",
         )
 
-    return build_daily_summary(
-        daily_df=session.dataframes["daily_hour"],
-        traffic_census=session.manual_inputs["traffic_census"],
-        overloaded_valid_permit_count=overloaded_valid_permit_count,
-        manual_inputs=session.manual_inputs,
-    )
+        return {
+            "weighed_by_hswim_q": q,
+            "weighed_scale_total_n": n,
+            "manually_weighed_m": m,
+            "total_weighed_x": x,
+            "total_traffic_t": t,
+            "total_overload_y": y,
+            "warned_a": a,
+            "charged_prohibited_z": z,
+            "special_release_g": g,
+            "vehicles_charged_but_redistributed_r": r,
+            "impounded_prohibited_p": p,
+            "cases_cleared_in_court_b": b,
+            "transgressions_l": l,
+            "exemption_permits_not_weighed_e": e,
+            "exemption_permits_weighed_f": f,
+            "exemption_permits_total": e + f,
+        }
 
 
 def daily_summary_rows(summary: dict[str, int]) -> list[tuple[str, int]]:
-    return [(label, int(summary[key])) for key, label in SUMMARY_FIELDS]
+    return [(label, summary[key]) for key, label in SUMMARY_FIELDS]

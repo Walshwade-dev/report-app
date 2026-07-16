@@ -1,12 +1,17 @@
 import io
 import re
 from datetime import datetime
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from xml.sax.saxutils import escape
 
 import matplotlib.pyplot as plt
 import pandas as pd
-from docx import Document
+
+if TYPE_CHECKING:
+    class Document(Any):
+        def __init__(self, *args: Any, **kwargs: Any) -> None: ...
+else:
+    from docx import Document
 from docx.enum.section import WD_ORIENT, WD_SECTION
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
@@ -46,6 +51,11 @@ def _manual_source(session) -> dict[str, Any]:
     mobile = session.manual_inputs.get("mobile_report")
     if isinstance(mobile, dict):
         return mobile
+
+    extra = session.manual_inputs.get("extra")
+    if isinstance(extra, dict) and isinstance(extra.get("mobile_report"), dict):
+        return extra["mobile_report"]
+
     return {}
 
 
@@ -347,7 +357,7 @@ def _add_heading(doc: Document, text: str, *, size: float = 12, underline: bool 
     paragraph = doc.add_paragraph()
     paragraph.paragraph_format.space_before = Pt(0)
     paragraph.paragraph_format.space_after = Pt(6)
-    run = paragraph.add_run(str(text).upper())
+    run = paragraph.add_run(text.upper())
     run.bold = True
     if underline:
         run.underline = True
@@ -470,7 +480,7 @@ def _create_mobile_hourly_chart(records: pd.DataFrame) -> io.BytesIO:
 
     buffer = io.BytesIO()
     fig = plt.figure(figsize=(6.3, 4.1), dpi=150)
-    ax = fig.add_axes([0.08, 0.2, 0.9, 0.66])
+    ax = fig.add_axes((0.08, 0.2, 0.9, 0.66))
     fig.patch.set_facecolor("white")
     fig.patch.set_edgecolor("#D9D9D9")
     fig.patch.set_linewidth(1.0)

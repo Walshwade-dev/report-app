@@ -9,7 +9,7 @@ from docx import Document
 from docx.enum.section import WD_ORIENT
 import matplotlib.pyplot as plt
 import pandas as pd
-from openpyxl import load_workbook
+from openpyxl import load_workbook  # type: ignore
 
 from app.services.mobile_word_report_builder import (
     _display_date,
@@ -400,7 +400,7 @@ def test_mobile_report_downloads_mapped_excel_workbook(client):
     assert chart_to_column.text == "23"
 
     # Verify notes cells via openpyxl (simpler than XML parsing for merged cells)
-    assert summary["O33"].value is not None
+    assert summary["O33"].value is not None  # type: ignore
     assert "Red" in str(summary["O33"].value)
     assert "O34:V34" in {str(r) for r in summary.merged_cells.ranges}
     assert "O35:V35" in {str(r) for r in summary.merged_cells.ranges}
@@ -680,9 +680,13 @@ def test_mobile_report_downloads_mapped_word_document(client):
     assert mileage.cell(2, 3).text == "KDS085Z"
     assert mileage.cell(3, 2).text == "303 KMS"
     assert mileage.cell(0, 0).paragraphs[0].runs[0].font.name == "Arial"
-    assert mileage.cell(0, 0).paragraphs[0].runs[0].font.size.pt == 12
+    font_size_0_0 = mileage.cell(0, 0).paragraphs[0].runs[0].font.size
+    assert font_size_0_0 is not None
+    assert font_size_0_0.pt == 12
     assert mileage.cell(1, 0).paragraphs[0].runs[0].font.name == "Calibri"
-    assert mileage.cell(1, 0).paragraphs[0].runs[0].font.size.pt == 14
+    font_size_1_0 = mileage.cell(1, 0).paragraphs[0].runs[0].font.size
+    assert font_size_1_0 is not None
+    assert font_size_1_0.pt == 14
 
     actual_route_paragraph = next(
         paragraph
@@ -702,13 +706,19 @@ def test_mobile_report_downloads_mapped_word_document(client):
 
     assert "ACTUAL ROUTE:" in actual_route_paragraph.text
     assert "WESTLANDS-PARKLANDS-RUIRU-JUJA" in actual_route_paragraph.text
-    assert actual_route_paragraph.paragraph_format.space_before.pt == 6
-    assert actual_route_paragraph.paragraph_format.space_after.pt == 6
+    space_before = actual_route_paragraph.paragraph_format.space_before
+    space_after = actual_route_paragraph.paragraph_format.space_after
+    assert space_before is not None
+    assert space_before.pt == 6
+    assert space_after is not None
+    assert space_after.pt == 6
     assert danka_paragraph.text == (
         "DANKA PERSONNEL : SHIFT 1: DM DUNCAN ODHIAMBO / DRIVER JANE DOE; "
         "SHIFT 2: DM ELIZABETH CHARI / DRIVER SAMUEL GITARA."
     )
-    assert danka_paragraph.paragraph_format.space_after.pt == 6
+    danka_space_after = danka_paragraph.paragraph_format.space_after
+    assert danka_space_after is not None
+    assert danka_space_after.pt == 6
     assert police_paragraph.text == (
         "POLICE OFFICERS : SHIFT 1: CPL EMASON SAUTET / PC JANE DOE; "
         "SHIFT 2: SGT ANGELO MBOGORI / PC EMERSON SUTET."
@@ -802,12 +812,26 @@ def assert_a4_landscape_layout(docx_bytes: bytes) -> None:
     document = Document(io.BytesIO(docx_bytes))
 
     for section in document.sections:
-        assert round(section.page_width.inches, 2) == A4_LANDSCAPE_WIDTH_INCHES
-        assert round(section.page_height.inches, 2) == A4_LANDSCAPE_HEIGHT_INCHES
-        assert round(section.left_margin.inches, 2) == LEFT_MARGIN_INCHES
-        assert round(section.right_margin.inches, 2) == RIGHT_MARGIN_INCHES
-        assert round(section.top_margin.inches, 2) == TOP_MARGIN_INCHES
-        assert round(section.bottom_margin.inches, 2) == BOTTOM_MARGIN_INCHES
+        page_width = section.page_width
+        page_height = section.page_height
+        left_margin = section.left_margin
+        right_margin = section.right_margin
+        top_margin = section.top_margin
+        bottom_margin = section.bottom_margin
+        
+        assert page_width is not None
+        assert page_height is not None
+        assert left_margin is not None
+        assert right_margin is not None
+        assert top_margin is not None
+        assert bottom_margin is not None
+        
+        assert round(page_width.inches, 2) == A4_LANDSCAPE_WIDTH_INCHES
+        assert round(page_height.inches, 2) == A4_LANDSCAPE_HEIGHT_INCHES
+        assert round(left_margin.inches, 2) == LEFT_MARGIN_INCHES
+        assert round(right_margin.inches, 2) == RIGHT_MARGIN_INCHES
+        assert round(top_margin.inches, 2) == TOP_MARGIN_INCHES
+        assert round(bottom_margin.inches, 2) == BOTTOM_MARGIN_INCHES
 
 
 def assert_table_grids_fit_a4_printable_width(docx_bytes: bytes) -> None:
@@ -1052,10 +1076,21 @@ def test_dashboard_mobile_kpis_filter_and_replace_duplicate_reports(client, temp
                 }
             },
         )
-        os.utime(
-            temp_store._session_metadata_path(session.report_id),
-            (modified_at, modified_at),
-        )
+        if temp_store.repository.enabled:
+            from app.core.database import SessionLocal
+            from app.db.models import Report
+            from datetime import datetime, timezone
+            assert SessionLocal is not None
+            with SessionLocal() as db_session:
+                r = db_session.query(Report).filter(Report.id == session.report_id).first()
+                if r:
+                    r.updated_at = datetime.fromtimestamp(modified_at, tz=timezone.utc)
+                    db_session.commit()
+        else:
+            os.utime(
+                temp_store._session_metadata_path(session.report_id),
+                (modified_at, modified_at),
+            )
 
     add_mobile_session(
         "2026-07-03",
@@ -1138,10 +1173,21 @@ def test_dms_performance_uses_latest_mobile_reports_and_staff_inputs(client, tem
                 }
             },
         )
-        os.utime(
-            temp_store._session_metadata_path(session.report_id),
-            (modified_at, modified_at),
-        )
+        if temp_store.repository.enabled:
+            from app.core.database import SessionLocal
+            from app.db.models import Report
+            from datetime import datetime, timezone
+            assert SessionLocal is not None
+            with SessionLocal() as db_session:
+                r = db_session.query(Report).filter(Report.id == session.report_id).first()
+                if r:
+                    r.updated_at = datetime.fromtimestamp(modified_at, tz=timezone.utc)
+                    db_session.commit()
+        else:
+            os.utime(
+                temp_store._session_metadata_path(session.report_id),
+                (modified_at, modified_at),
+            )
 
     add_mobile_session(
         "Mobile 1",
@@ -1188,6 +1234,98 @@ def test_dms_performance_uses_latest_mobile_reports_and_staff_inputs(client, tem
     assert rows_by_name["DM ELIZABETH CHARI"]["chargeRate"] == 28.6
 
 
+def test_dms_performance_date_filtering(client, temp_store):
+    def add_mobile_session(
+        report_date: str,
+        bound: str,
+        staff: str,
+        *,
+        weighed: int,
+        charged: int,
+        modified_at: float,
+    ) -> None:
+        session = temp_store.create(
+            report_date=report_date,
+            station="Juja mobile",
+            bound=bound,
+            weighbridge_name="Juja mobile",
+        )
+        temp_store.update_manual_inputs(
+            session.report_id,
+            extra={"mobile_report": {"danka_staff": staff}},
+        )
+        temp_store.set_section_ready(
+            session.report_id,
+            "mobile_report",
+            pd.DataFrame({"ticket_no": [session.report_id]}),
+            extra={
+                "summary": {
+                    "total_trucks_weighed": weighed,
+                    "charged_trucks": charged,
+                }
+            },
+        )
+        if temp_store.repository.enabled:
+            from app.core.database import SessionLocal
+            from app.db.models import Report
+            from datetime import datetime, timezone
+            assert SessionLocal is not None
+            with SessionLocal() as db_session:
+                r = db_session.query(Report).filter(Report.id == session.report_id).first()
+                if r:
+                    r.updated_at = datetime.fromtimestamp(modified_at, tz=timezone.utc)
+                    db_session.commit()
+        else:
+            os.utime(
+                temp_store._session_metadata_path(session.report_id),
+                (modified_at, modified_at),
+            )
+
+    add_mobile_session(
+        "2026-07-05",
+        "Mobile 1",
+        "dm duncan odhiambo / driver jane doe",
+        weighed=10,
+        charged=2,
+        modified_at=1000,
+    )
+    add_mobile_session(
+        "2026-07-10",
+        "Mobile 1",
+        "dm duncan odhiambo / driver jane doe",
+        weighed=15,
+        charged=3,
+        modified_at=2000,
+    )
+    add_mobile_session(
+        "2026-07-15",
+        "Mobile 1",
+        "dm duncan odhiambo / driver jane doe",
+        weighed=20,
+        charged=4,
+        modified_at=3000,
+    )
+    add_mobile_session(
+        "2026-06-15",
+        "Mobile 1",
+        "dm duncan odhiambo / driver jane doe",
+        weighed=5,
+        charged=1,
+        modified_at=4000,
+    )
+
+    response = client.get("/api/report-sessions/analytics/dms-performance?date=2026-07-10")
+    assert response.status_code == 200
+    payload = response.json()
+    
+    assert payload["reports"] == 2
+    rows_by_name = {row["name"]: row for row in payload["rows"]}
+    assert "DM DUNCAN ODHIAMBO" in rows_by_name
+    assert rows_by_name["DM DUNCAN ODHIAMBO"]["weighed"] == 25
+    assert rows_by_name["DM DUNCAN ODHIAMBO"]["charged"] == 5
+    assert rows_by_name["DM DUNCAN ODHIAMBO"]["monthCharged"] == 5
+
+
 def test_dashboard_static_kpis_filter_bounds_and_replace_duplicates(client, temp_store):
     def add_static_session(
         report_date: str,
@@ -1223,10 +1361,21 @@ def test_dashboard_static_kpis_filter_bounds_and_replace_duplicates(client, temp
                 ]
             ),
         )
-        os.utime(
-            temp_store._session_metadata_path(session.report_id),
-            (modified_at, modified_at),
-        )
+        if temp_store.repository.enabled:
+            from app.core.database import SessionLocal
+            from app.db.models import Report
+            from datetime import datetime, timezone
+            assert SessionLocal is not None
+            with SessionLocal() as db_session:
+                r = db_session.query(Report).filter(Report.id == session.report_id).first()
+                if r:
+                    r.updated_at = datetime.fromtimestamp(modified_at, tz=timezone.utc)
+                    db_session.commit()
+        else:
+            os.utime(
+                temp_store._session_metadata_path(session.report_id),
+                (modified_at, modified_at),
+            )
 
     add_static_session(
         "2026-07-03",

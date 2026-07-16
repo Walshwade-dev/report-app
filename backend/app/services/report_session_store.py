@@ -150,26 +150,39 @@ class ReportSessionStore:
         self,
         max_age_hours: int = DEFAULT_SESSION_RETENTION_HOURS,
     ) -> list[str]:
-        cutoff_timestamp = time.time() - (max_age_hours * 60 * 60)
+        from datetime import timedelta
+        cutoff_dt = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
         deleted_report_ids: list[str] = []
 
-        for metadata_path in sorted(self.sessions_dir.glob("*.json")):
-            if not self._is_within_storage_root(metadata_path):
-                continue
+        if self.repository.enabled:
+            summaries = self.repository.list_reports(limit=100000)
+            for summary in summaries:
+                updated_at = summary.get("updated_at")
+                if updated_at and updated_at < cutoff_dt:
+                    report_id = summary["report_id"]
+                    self._remove_session_artifacts(report_id)
+                    self._sessions.pop(report_id, None)
+                    self.repository.delete_report(report_id)
+                    deleted_report_ids.append(report_id)
+        else:
+            cutoff_timestamp = time.time() - (max_age_hours * 60 * 60)
+            for metadata_path in sorted(self.sessions_dir.glob("*.json")):
+                if not self._is_within_storage_root(metadata_path):
+                    continue
 
-            try:
-                modified_at = metadata_path.stat().st_mtime
-            except FileNotFoundError:
-                continue
+                try:
+                    modified_at = metadata_path.stat().st_mtime
+                except FileNotFoundError:
+                    continue
 
-            if modified_at > cutoff_timestamp:
-                continue
+                if modified_at > cutoff_timestamp:
+                    continue
 
-            report_id = metadata_path.stem
-            self._remove_session_artifacts(report_id)
-            self._sessions.pop(report_id, None)
-            self.repository.delete_report(report_id)
-            deleted_report_ids.append(report_id)
+                report_id = metadata_path.stem
+                self._remove_session_artifacts(report_id)
+                self._sessions.pop(report_id, None)
+                self.repository.delete_report(report_id)
+                deleted_report_ids.append(report_id)
 
         return deleted_report_ids
 
@@ -214,10 +227,11 @@ class ReportSessionStore:
 
     def _save_metadata(self, session: ReportSession) -> None:
         payload = self._metadata_payload(session)
-        self._write_json_atomic(
-            self._session_metadata_path(session.report_id),
-            payload,
-        )
+        if not self.repository.enabled:
+            self._write_json_atomic(
+                self._session_metadata_path(session.report_id),
+                payload,
+            )
         self.repository.save_session_snapshot(payload)
 
     def _session_from_metadata_payload(self, payload: dict[str, Any]) -> ReportSession:
@@ -259,10 +273,12 @@ class ReportSessionStore:
     def _load_session_from_disk(self, report_id: str) -> ReportSession | None:
         metadata_path = self._session_metadata_path(report_id)
 
-        if metadata_path.exists():
+        if self.repository.enabled:
+            payload = self.repository.load_session_snapshot(report_id)
+        elif metadata_path.exists():
             payload = json.loads(metadata_path.read_text(encoding="utf-8"))
         else:
-            payload = self.repository.load_session_snapshot(report_id)
+            payload = None
 
         if not payload:
             return None
@@ -394,9 +410,10 @@ class ReportSessionStore:
         return session
 
     def list_report_ids(self) -> list[str]:
+        if self.repository.enabled:
+            return self.repository.list_report_ids()
         file_ids = [path.stem for path in self.sessions_dir.glob("*.json")]
-        database_ids = self.repository.list_report_ids()
-        return list(dict.fromkeys([*database_ids, *sorted(file_ids)]))
+        return list(dict.fromkeys(sorted(file_ids)))
 
     def _session_metadata_mtime(self, report_id: str) -> datetime:
         metadata_path = self._session_metadata_path(report_id)
@@ -653,6 +670,22 @@ class ReportSessionStore:
                     "url": f"/api/report-sessions/{report_id}/sections/daily-hour-chart/preview?format=png&page=2",
                 },
             ]
+            summary = {}
+            if "DATE" in dataframe.columns:
+                totals_mask = dataframe["DATE"].astype(str).str.strip().str.lower().eq("totals")
+                if totals_mask.any():
+                    totals_row = dataframe.loc[totals_mask].iloc[-1]
+                    for col in dataframe.columns:
+                        if col != "DATE":
+                            try:
+                                val = totals_row.get(col, 0)
+                                if pd.isna(val) or val is None:
+                                    summary[col] = 0
+                                else:
+                                    summary[col] = int(float(str(val).replace(",", "")))
+                            except Exception:
+                                summary[col] = 0
+            section_state["summary"] = summary
 
         if extra:
             section_state.update(extra)
