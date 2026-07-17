@@ -3,13 +3,14 @@ import os
 import secrets
 from datetime import datetime
 
-from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile, Depends
+from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile, Depends, BackgroundTasks
 from fastapi.responses import Response
 from pydantic import BaseModel
 
 from app.db.models import User
 from app.routes.auth import get_current_user
 from app.core.security import decode_access_token
+from app.services.report_worker import enqueue_build_final_report
 
 from app.services.cleaner_core import clean_with_template
 from app.services.daily_hour_processor import (
@@ -387,9 +388,24 @@ def build_summary_cards(session: ReportSession) -> dict:
     }
 
 
+def check_write_permission(current_user: User = Depends(get_current_user)):
+    if current_user.role in ("duty_manager", "cluster_manager"):
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: Your account role does not allow modifications."
+        )
+    return current_user
+
+
 @router.post("/report-sessions")
-async def create_report_session(payload: ReportSessionCreate, current_user: User = Depends(get_current_user)):
+async def create_report_session(payload: ReportSessionCreate, current_user: User = Depends(check_write_permission)):
     station = payload.station or payload.weighbridge_name
+
+    # Override for non-admins to lock station and prepared_by
+    if current_user.role != "admin":
+        if current_user.station:
+            station = current_user.station
+        payload.prepared_by = current_user.full_name or current_user.username
 
     if not station:
         raise HTTPException(
@@ -401,11 +417,12 @@ async def create_report_session(payload: ReportSessionCreate, current_user: User
         report_date=payload.report_date,
         station=station,
         bound=payload.bound,
-        weighbridge_name=payload.weighbridge_name or station,
+        weighbridge_name=station,
         prepared_by=payload.prepared_by,
         confirmed_by=payload.confirmed_by,
     )
     return serialize_session(session)
+
 
 
 @router.get("/report-sessions")
@@ -1036,9 +1053,16 @@ async def get_dms_performance(date: str | None = None):
 async def update_report_session_metadata(
     report_id: str,
     payload: ReportSessionMetadataUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(check_write_permission),
 ):
     require_session(report_id)
+
+    # Override/lock for non-admins
+    if current_user.role != "admin":
+        if current_user.station:
+            payload.station = current_user.station
+            payload.weighbridge_name = current_user.station
+        payload.prepared_by = current_user.full_name or current_user.username
 
     if (
         payload.report_date is None
@@ -1069,9 +1093,15 @@ async def update_report_session_metadata(
 async def update_report_session_manual_inputs(
     report_id: str,
     payload: ManualInputsUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(check_write_permission),
 ):
     require_session(report_id)
+
+    # Override/lock for non-admins
+    if current_user.role != "admin":
+        if current_user.station:
+            payload.weighbridge_name = current_user.station
+        payload.prepared_by = current_user.full_name or current_user.username
 
     try:
         updated = report_session_store.update_manual_inputs(
@@ -1089,12 +1119,13 @@ async def update_report_session_manual_inputs(
     return serialize_session(updated)
 
 
+
 @router.post("/report-sessions/{report_id}/uploads/daily-hour")
 async def upload_daily_hour_file(
     report_id: str,
     file: UploadFile = File(...),
     wideload_count: int = Form(0),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(check_write_permission),
 ):
     session = require_session(report_id)
 
@@ -1144,7 +1175,7 @@ async def upload_daily_hour_file(
 async def upload_wideload_file(
     report_id: str,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(check_write_permission),
 ):
     try:
         filename, content, raw_df = await read_upload_dataframe(file)
@@ -1207,7 +1238,7 @@ async def upload_wideload_file(
 async def upload_impounded_prohibited_file(
     report_id: str,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(check_write_permission),
 ):
     require_session(report_id)
 
@@ -1249,7 +1280,7 @@ async def upload_impounded_prohibited_file(
 async def upload_overloaded_file(
     report_id: str,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(check_write_permission),
 ):
     require_session(report_id)
 
@@ -1286,7 +1317,7 @@ async def upload_overloaded_file(
 async def upload_mobile_report_file(
     report_id: str,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(check_write_permission),
 ):
     require_session(report_id)
 
@@ -1331,7 +1362,8 @@ async def upload_mobile_report_file(
 @router.post("/report-sessions/{report_id}/build-final-report")
 async def build_report_session_final_report(
     report_id: str,
-    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(check_write_permission),
 ):
     session = require_session(report_id)
     required_sections = [
@@ -1359,49 +1391,14 @@ async def build_report_session_final_report(
             },
         )
 
-    report_session_store.set_report_processing(report_id)
+    # Set status to processing
+    updated = report_session_store.set_report_processing(report_id)
 
-    try:
-        wideload_count = get_wideload_count_from_session(session)
+    # Enqueue background build task
+    enqueue_build_final_report(report_id, background_tasks)
 
-        if wideload_count is None:
-            wideload_count = len(session.dataframes["wideload"])
+    return serialize_session(updated)
 
-        file_stream = build_final_report(
-            daily_df=session.dataframes["daily_hour"],
-            wideload_df=session.dataframes["wideload"],
-            impounded_prohibited_df=session.dataframes["impounded_prohibited"],
-            overloaded_df=session.dataframes["overloaded"],
-            report_date=session.report_date,
-            station=session.station,
-            bound=session.bound,
-            prepared_by=session.prepared_by,
-            confirmed_by=session.confirmed_by,
-            traffic_census=session.manual_inputs.get("traffic_census"),
-            daily_summary=session.sections.get("daily_summary", {}).get("values"),
-            transgressions=session.manual_inputs.get("transgressions"),
-            wideload_count=wideload_count,
-        )
-        updated = report_session_store.set_final_report(
-            report_id,
-            file_stream.read(),
-        )
-        return serialize_session(updated)
-
-    except Exception as exc:
-        logger.exception(
-            "Failed to build final report for report session %s",
-            report_id,
-        )
-        updated = report_session_store.set_final_report_error(report_id, str(exc))
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "message": "Failed to build final report",
-                "error": str(exc),
-                "session": serialize_session(updated),
-            },
-        )
 
 
 @router.get("/report-sessions/{report_id}/sections/{section_name}/preview")

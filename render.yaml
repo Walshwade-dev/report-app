@@ -21,6 +21,41 @@ services:
         value: "20"
       - key: REPORT_STORAGE_ROOT
         value: /var/data/report-app-storage
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: report-app-redis
+          property: connectionString
+    disk:
+      name: report-app-storage
+      mountPath: /var/data
+      sizeGB: 1
+
+  - type: redis
+    name: report-app-redis
+    ipAllowList: [] # Only allow internal connections
+    plan: free
+
+  - type: worker
+    name: report-app-worker
+    runtime: docker
+    branch: main
+    rootDir: backend
+    dockerCommand: python -m rq worker --url $REDIS_URL
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: report-app-db
+          property: connectionString
+      - key: REPORT_STORAGE_ROOT
+        value: /var/data/report-app-storage
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: report-app-redis
+          property: connectionString
     disk:
       name: report-app-storage
       mountPath: /var/data
@@ -30,3 +65,4 @@ databases:
   - name: report-app-db
     databaseName: report_app_db
     user: report_app_user
+

@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -22,6 +22,8 @@ users_router = APIRouter(prefix="/users", tags=["users"])
 settings = get_settings()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/token")
+
+from app.services.rate_limiter import check_login_rate_limit
 
 
 # Pydantic Schemas
@@ -110,8 +112,18 @@ def register(user_in: UserRegister, db: Session = Depends(get_db)) -> Any:
 
 @router.post("/token", response_model=Token)
 def login_for_access_token(
-    form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
+    request: Request,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
 ) -> Any:
+    # Check rate limit
+    client_ip = request.client.host if request.client else "unknown"
+    if not check_login_rate_limit(form_data.username, client_ip):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Please try again after 60 seconds."
+        )
+
     # Verify username and password
     user = db.query(User).filter(User.username == form_data.username).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
