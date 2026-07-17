@@ -1245,7 +1245,7 @@ def build_mobile_word_report(session) -> io.BytesIO:
         _add_continuous_landscape_section(doc)
         _add_vehicle_table(
             doc,
-            "8.0 VEHICLES CHARGED DUE TO DIMENSIONS",
+            "8.0 Charged on dimensions",
             charged_dimensions,
             session,
             report_date,
