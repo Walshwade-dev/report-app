@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from app.db.models import User
 from app.routes.auth import get_current_user
+from app.core.security import decode_access_token
 
 from app.services.cleaner_core import clean_with_template
 from app.services.daily_hour_processor import (
@@ -82,7 +83,20 @@ class ReportSessionHistoryItem(BaseModel):
     download_available: bool
 
 
-def require_admin_password(x_admin_password: str | None) -> None:
+def require_admin_password(
+    x_admin_password: str | None,
+    authorization: str | None = None
+) -> None:
+    # Try JWT Authentication first if header is present
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+        payload = decode_access_token(token)
+        if payload:
+            role = payload.get("role")
+            username = payload.get("sub")
+            if role == "admin" or username == "admin":
+                return
+
     configured_password = os.getenv("ADMIN_PASSWORD")
 
     if not configured_password:
@@ -97,7 +111,7 @@ def require_admin_password(x_admin_password: str | None) -> None:
     ):
         raise HTTPException(
             status_code=401,
-            detail="Invalid admin password.",
+            detail="Invalid admin password or session token.",
         )
 
 
@@ -402,8 +416,9 @@ async def list_report_sessions(
     offset: int = Query(default=0, ge=0),
     search: str | None = Query(default=None, max_length=120),
     x_admin_password: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
 ):
-    require_admin_password(x_admin_password)
+    require_admin_password(x_admin_password, authorization)
     items = []
     summaries = report_session_store.list_report_history(
         status=status,
@@ -476,8 +491,9 @@ async def get_report_session(report_id: str):
 async def delete_report_session(
     report_id: str,
     x_admin_password: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
 ):
-    require_admin_password(x_admin_password)
+    require_admin_password(x_admin_password, authorization)
     deleted = report_session_store.delete(report_id)
 
     if not deleted:

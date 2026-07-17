@@ -10,7 +10,7 @@ load_dotenv()
 
 from app.core.database import SessionLocal, is_database_configured
 from app.routes.reports import router as reports_router
-from app.routes.auth import router as auth_router
+from app.routes.auth import router as auth_router, users_router
 from app.services.report_session_store import report_session_store
 
 app = FastAPI(
@@ -138,3 +138,4 @@ async def persistence_health():
 
 app.include_router(reports_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
+app.include_router(users_router, prefix="/api")
