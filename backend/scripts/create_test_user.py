@@ -18,18 +18,20 @@ def create_user():
         # Check if user exists
         existing = db.query(User).filter(User.username == "admin").first()
         if existing:
-            print("User 'admin' already exists.")
+            existing.hashed_password = get_password_hash("Allbegood8*")
+            db.commit()
+            print("Updated existing user 'admin' with password 'Allbegood8*'.")
             return
         
         user = User(
             username="admin",
-            hashed_password=get_password_hash("admin-local"),
+            hashed_password=get_password_hash("Allbegood8*"),
             full_name="Local Admin",
             role="admin"
         )
         db.add(user)
         db.commit()
-        print("Created test user 'admin' with password 'admin-local'.")
+        print("Created test user 'admin' with password 'Allbegood8*'.")
     finally:
         db.close()
 
