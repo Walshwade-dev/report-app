@@ -1154,7 +1154,13 @@ def build_mobile_word_report(session) -> io.BytesIO:
     if records.empty:
         raise ValueError("Mobile report data has no valid Date Time values")
 
-    report_date = _date_value(records["date_time"].iloc[0])
+    if getattr(session, "report_date", None):
+        try:
+            report_date = _date_value(session.report_date)
+        except Exception:
+            report_date = _date_value(records["date_time"].iloc[0])
+    else:
+        report_date = _date_value(records["date_time"].iloc[0])
     doc = Document()
     enable_field_updates(doc)
     
