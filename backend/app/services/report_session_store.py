@@ -338,6 +338,69 @@ class ReportSessionStore:
             "values": daily_summary,
         }
 
+    def find_by_slot(
+        self,
+        report_date: str,
+        station: str,
+        bound: str,
+    ) -> ReportSession | None:
+        """Find an existing session matching the given date/station/bound slot."""
+        norm_station = (station or "").strip().lower()
+        norm_bound = (bound or "").strip().lower()
+
+        # Check in-memory sessions first
+        for session in self._sessions.values():
+            if (
+                session.report_date == report_date
+                and (session.station or "").strip().lower() == norm_station
+                and (session.bound or "").strip().lower() == norm_bound
+            ):
+                return session
+
+        # Check database / disk sessions
+        for report_id in self.list_report_ids():
+            if report_id in self._sessions:
+                continue
+            session = self.get(report_id)
+            if session and (
+                session.report_date == report_date
+                and (session.station or "").strip().lower() == norm_station
+                and (session.bound or "").strip().lower() == norm_bound
+            ):
+                return session
+
+        return None
+
+    def reset_session(self, report_id: str) -> ReportSession:
+        """Reset a session to its initial state, clearing all uploads and outputs."""
+        session = self.require(report_id)
+
+        # Clear generated artifacts from disk
+        self._remove_session_artifacts(report_id)
+
+        # Reset in-memory state
+        session.sections = _default_sections()
+        session.dataframes = {}
+        session.manual_inputs = {}
+        session.final_report = None
+        session.final_report_status = "not_built"
+        session.final_report_error = None
+
+        # Re-persist the clean session
+        self._save_metadata(session)
+
+        if self.repository.enabled:
+            self.repository.upsert_manual_inputs(
+                report_id=report_id,
+                manual_inputs=session.manual_inputs,
+                prepared_by=session.prepared_by,
+                approved_by=session.confirmed_by,
+                weighbridge_name=session.weighbridge_name,
+                bound_name=session.bound,
+            )
+
+        return session
+
     def create(
         self,
         report_date: str,
@@ -347,6 +410,17 @@ class ReportSessionStore:
         prepared_by: str | None = None,
         confirmed_by: str | None = None,
     ) -> ReportSession:
+        # Check for an existing session in the same slot
+        existing = self.find_by_slot(report_date, station, bound)
+        if existing:
+            session = self.reset_session(existing.report_id)
+            # Update metadata fields that may have changed
+            session.prepared_by = prepared_by
+            session.confirmed_by = confirmed_by
+            session.weighbridge_name = weighbridge_name or station
+            self._save_metadata(session)
+            return session
+
         report_id = str(uuid4())
         session = ReportSession(
             report_id=report_id,
