@@ -3,9 +3,12 @@ import os
 import secrets
 from datetime import datetime
 
-from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile, Depends
 from fastapi.responses import Response
 from pydantic import BaseModel
+
+from app.db.models import User
+from app.routes.auth import get_current_user
 
 from app.services.cleaner_core import clean_with_template
 from app.services.daily_hour_processor import (
@@ -371,7 +374,7 @@ def build_summary_cards(session: ReportSession) -> dict:
 
 
 @router.post("/report-sessions")
-async def create_report_session(payload: ReportSessionCreate):
+async def create_report_session(payload: ReportSessionCreate, current_user: User = Depends(get_current_user)):
     station = payload.station or payload.weighbridge_name
 
     if not station:
@@ -1017,6 +1020,7 @@ async def get_dms_performance(date: str | None = None):
 async def update_report_session_metadata(
     report_id: str,
     payload: ReportSessionMetadataUpdate,
+    current_user: User = Depends(get_current_user),
 ):
     require_session(report_id)
 
@@ -1049,6 +1053,7 @@ async def update_report_session_metadata(
 async def update_report_session_manual_inputs(
     report_id: str,
     payload: ManualInputsUpdate,
+    current_user: User = Depends(get_current_user),
 ):
     require_session(report_id)
 
@@ -1073,6 +1078,7 @@ async def upload_daily_hour_file(
     report_id: str,
     file: UploadFile = File(...),
     wideload_count: int = Form(0),
+    current_user: User = Depends(get_current_user),
 ):
     session = require_session(report_id)
 
@@ -1119,7 +1125,11 @@ async def upload_daily_hour_file(
         )
 
 @router.post("/report-sessions/{report_id}/uploads/wideload")
-async def upload_wideload_file(report_id: str, file: UploadFile = File(...)):
+async def upload_wideload_file(
+    report_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
     try:
         filename, content, raw_df = await read_upload_dataframe(file)
         report_session_store.save_upload(report_id, "wideload", filename, content)
@@ -1181,6 +1191,7 @@ async def upload_wideload_file(report_id: str, file: UploadFile = File(...)):
 async def upload_impounded_prohibited_file(
     report_id: str,
     file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
 ):
     require_session(report_id)
 
@@ -1219,7 +1230,11 @@ async def upload_impounded_prohibited_file(
 
 
 @router.post("/report-sessions/{report_id}/uploads/overloaded")
-async def upload_overloaded_file(report_id: str, file: UploadFile = File(...)):
+async def upload_overloaded_file(
+    report_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
     require_session(report_id)
 
     try:
@@ -1252,7 +1267,11 @@ async def upload_overloaded_file(report_id: str, file: UploadFile = File(...)):
 
 
 @router.post("/report-sessions/{report_id}/uploads/mobile-report")
-async def upload_mobile_report_file(report_id: str, file: UploadFile = File(...)):
+async def upload_mobile_report_file(
+    report_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
     require_session(report_id)
 
     try:
@@ -1294,7 +1313,10 @@ async def upload_mobile_report_file(report_id: str, file: UploadFile = File(...)
 
 
 @router.post("/report-sessions/{report_id}/build-final-report")
-async def build_report_session_final_report(report_id: str):
+async def build_report_session_final_report(
+    report_id: str,
+    current_user: User = Depends(get_current_user),
+):
     session = require_session(report_id)
     required_sections = [
         "daily_hour",

@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     database_url: str | None = None
     report_database_url: str | None = None
     report_storage_root: str | None = None
+    jwt_secret_key: str = "supersecretkeychangeitinproduction"
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_minutes: int = 1440
 
     model_config = SettingsConfigDict(
         env_file=".env",
