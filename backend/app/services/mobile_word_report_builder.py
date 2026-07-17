@@ -963,7 +963,7 @@ def _format_shift_people(shifts: list[dict[str, Any]], key: str) -> str:
             _upper(name) for name in _split_location_people(shift.get(key))
         )
         if people:
-            parts.append(f"SHIFT {index}: {people}")
+            parts.append(f"{people}")
 
     return f"{'; '.join(parts)}." if parts else "."
 
@@ -1228,7 +1228,7 @@ def build_mobile_word_report(session) -> io.BytesIO:
 
     charged_over_two = records.loc[
         (records["gvw_difference_kg"] > 2000)
-        & (records["is_gvw_axle_charge"] | records["is_dimension_charge"])
+        & records["is_gvw_axle_charge"]
     ].copy()
     _add_continuous_landscape_section(doc)
     _add_vehicle_table(
@@ -1238,6 +1238,18 @@ def build_mobile_word_report(session) -> io.BytesIO:
         session,
         report_date,
     )
+
+    charged_dimensions = records.loc[records["is_dimension_charge"]].copy()
+    if not charged_dimensions.empty:
+        charged_dimensions["remarks"] = "CHARGED (DIMENSIONS)"
+        _add_continuous_landscape_section(doc)
+        _add_vehicle_table(
+            doc,
+            "8.0 VEHICLES CHARGED DUE TO DIMENSIONS",
+            charged_dimensions,
+            session,
+            report_date,
+        )
 
     _add_continuous_landscape_section(doc)
     _add_mileage_table(doc, session)

@@ -794,6 +794,28 @@ class ReportSessionStore:
         if extra:
             session.manual_inputs.update(extra)
 
+        if "mobile_report_raw" in session.dataframes:
+            raw_df = session.dataframes["mobile_report_raw"]
+            mobile_report_inputs = session.manual_inputs.get("mobile_report") or {}
+            reweigh_tickets = mobile_report_inputs.get("reweigh_tickets") or []
+            dimension_charges = mobile_report_inputs.get("dimension_charges") or []
+
+            from app.services.mobile_report_processor import normalize_mobile_report, summarize_mobile_report
+            records = normalize_mobile_report(
+                raw_df,
+                reweigh_tickets=reweigh_tickets,
+                dimension_charges=dimension_charges,
+                station=session.weighbridge_name or session.station,
+            )
+            summary = summarize_mobile_report(records)
+            self.set_section_ready(
+                report_id,
+                "mobile_report",
+                records,
+                filename=session.sections.get("mobile_report", {}).get("filename"),
+                extra={"summary": summary},
+            )
+
         self._refresh_daily_summary_status(session)
         self._invalidate_generated_outputs(session)
         self._save_metadata(session)

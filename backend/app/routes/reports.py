@@ -178,7 +178,7 @@ def serialize_session(session: ReportSession) -> dict:
             f"/api/report-sessions/{session.report_id}/download-final-report"
         )
 
-    return {
+    payload = {
         "report_id": session.report_id,
         "metadata": {
             "report_date": session.report_date,
@@ -216,6 +216,20 @@ def serialize_session(session: ReportSession) -> dict:
             ),
         },
     }
+
+    if "mobile_report_raw" in session.dataframes:
+        raw_df = session.dataframes["mobile_report_raw"]
+        mobile_report_inputs = session.manual_inputs.get("mobile_report") or {}
+        reweigh_tickets = mobile_report_inputs.get("reweigh_tickets") or []
+        dimension_charges = mobile_report_inputs.get("dimension_charges") or []
+        payload["mobile_report"] = mobile_report_response(
+            raw_df,
+            reweigh_tickets=reweigh_tickets,
+            dimension_charges=dimension_charges,
+            station=session.weighbridge_name or session.station,
+        )
+
+    return payload
 
 
 def require_session(report_id: str) -> ReportSession:
@@ -1319,7 +1333,7 @@ async def upload_mobile_report_file(
     file: UploadFile = File(...),
     current_user: User = Depends(check_write_permission),
 ):
-    require_session(report_id)
+    session = require_session(report_id)
 
     try:
         filename, content, raw_df = await read_upload_dataframe(file)
@@ -1329,7 +1343,24 @@ async def upload_mobile_report_file(
             filename,
             content,
         )
-        records = normalize_mobile_report(raw_df)
+        
+        # Store raw_df pickle in session
+        raw_df_path = report_session_store._processed_section_path(report_id, "mobile_report_raw")
+        raw_df_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_df.to_pickle(raw_df_path)
+        session.dataframes["mobile_report_raw"] = raw_df
+
+        # Check existing manual inputs
+        mobile_report_inputs = session.manual_inputs.get("mobile_report") or {}
+        reweigh_tickets = mobile_report_inputs.get("reweigh_tickets") or []
+        dimension_charges = mobile_report_inputs.get("dimension_charges") or []
+
+        records = normalize_mobile_report(
+            raw_df,
+            reweigh_tickets=reweigh_tickets,
+            dimension_charges=dimension_charges,
+            station=session.weighbridge_name or session.station,
+        )
         summary = summarize_mobile_report(records)
 
         updated = report_session_store.set_section_ready(
@@ -1340,7 +1371,12 @@ async def upload_mobile_report_file(
             extra={"summary": summary},
         )
         payload = serialize_session(updated)
-        payload["mobile_report"] = mobile_report_response(raw_df)
+        payload["mobile_report"] = mobile_report_response(
+            raw_df,
+            reweigh_tickets=reweigh_tickets,
+            dimension_charges=dimension_charges,
+            station=session.weighbridge_name or session.station,
+        )
         return payload
 
     except Exception as exc:
