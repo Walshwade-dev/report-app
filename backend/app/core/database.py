@@ -23,11 +23,23 @@ def normalize_database_url(database_url: str | None) -> str | None:
 settings = get_settings()
 DATABASE_URL = normalize_database_url(settings.resolved_database_url)
 
+
+def engine_options(database_url: str) -> dict:
+    options = {
+        "pool_pre_ping": True,
+        "future": True,
+    }
+
+    if database_url.startswith("postgresql+psycopg://"):
+        options["connect_args"] = {"connect_timeout": 3}
+
+    return options
+
+
 engine = (
     create_engine(
         DATABASE_URL,
-        pool_pre_ping=True,
-        future=True,
+        **engine_options(DATABASE_URL),
     )
     if DATABASE_URL
     else None

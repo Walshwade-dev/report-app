@@ -99,7 +99,17 @@ def _report_title(report: Report) -> str:
 
 class ReportRepository:
     def __init__(self):
-        self.enabled = SessionLocal is not None
+        use_development_database = (
+            os.getenv("REPORT_USE_DATABASE_IN_DEVELOPMENT", "")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"}
+        )
+        app_env = os.getenv("APP_ENV", "production")
+        self.enabled = (
+            SessionLocal is not None
+            and (app_env != "development" or use_development_database)
+        )
 
     @contextmanager
     def _session_scope(self) -> Iterator[Session]:

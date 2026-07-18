@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import shutil
 import time
@@ -22,6 +23,7 @@ from app.services.transgressions_processor import normalize_transgressions_input
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
 STORAGE_ROOT = Path(
     os.getenv("REPORT_STORAGE_ROOT", Path(__file__).resolve().parents[1] / "storage")
 )
@@ -227,7 +229,10 @@ class ReportSessionStore:
 
     def _save_metadata(self, session: ReportSession) -> None:
         payload = self._metadata_payload(session)
-        if not self.repository.enabled:
+        if (
+            not self.repository.enabled
+            or os.getenv("APP_ENV", "production") == "development"
+        ):
             self._write_json_atomic(
                 self._session_metadata_path(session.report_id),
                 payload,
@@ -905,6 +910,9 @@ class ReportSessionStore:
 
     def set_report_processing(self, report_id: str) -> ReportSession:
         session = self.require(report_id)
+        session.final_report_status = "processing"
+        session.final_report_error = None
+        self._save_metadata(session)
         self.repository.update_report_status(report_id, "processing")
         return session
 
