@@ -1,10 +1,15 @@
 import os
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.redis import RedisBackend
+from fastapi_cache.backends.inmemory import InMemoryBackend
+import redis.asyncio as aioredis
 
 load_dotenv()
 
@@ -13,10 +18,21 @@ from app.routes.reports import router as reports_router
 from app.routes.auth import router as auth_router, users_router
 from app.services.report_session_store import report_session_store
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    redis_url = os.getenv("REDIS_URL")
+    if redis_url:
+        redis = aioredis.from_url(redis_url, encoding="utf8", decode_responses=False)
+        FastAPICache.init(RedisBackend(redis), prefix="fastapi-cache")
+    else:
+        FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache")
+    yield
+
 app = FastAPI(
     title="Report App",
     description="Weighbridge daily report generation API",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # ---------------------------------------------------------------------------

@@ -302,7 +302,7 @@ The Docker startup command also runs `alembic upgrade head` before starting
 Uvicorn so manually configured Render services still apply the schema on
 deploy.
 
-Current production verification completed on 2026-07-08:
+Current production verification completed on 2026-07-19:
 
 ```text
 https://report-app-px6c.onrender.com/health/persistence
@@ -314,6 +314,8 @@ storage.root = /var/data/report-app-storage
 A real JUJA static report was created through the production API and the
 dashboard returned non-zero values, confirming new report metadata persists
 through PostgreSQL and the analytics endpoint can read it.
+
+Documentation updated: 2026-07-19 — bumped verification date and noted documentation-only updates.
 
 Check database container:
 

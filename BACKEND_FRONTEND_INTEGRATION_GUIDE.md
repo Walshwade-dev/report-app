@@ -17,7 +17,7 @@ This document should be updated after every backend implementation step. Each ti
 ### Current Status Snapshot
 
 ```text
-Status date: 2026-07-08
+Status date: 2026-07-19
 Backend framework: FastAPI
 Frontend: Separate Next.js frontend is being integrated with this backend API
 Current backend mode: Section generators plus PostgreSQL-backed report metadata, persistent filesystem artifacts, mobile/weighbridge register extraction, refined mobile Word report formatting, SMS summary builders, and locked signatory details
@@ -177,6 +177,8 @@ Use this section as the running project history.
 2026-07-03 - Refined mobile Word report output: moved repeated mobile report title to centered headers, restored formatted footer with reference/date/page fields, tuned Section 2 chart scale/labels/axis styling, added prepared/approved textbox, refined Location Report formatting, adjusted mobile dates, and kept full Danka/police values in vehicle detail rows.
 2026-07-08 - Added PostgreSQL-backed report metadata persistence for production dashboard/history, persistent Render storage health checks, production DB failure surfacing, metadata backfill script, and admin-password gating for report history and deletion.
 2026-07-08 - Verified production PostgreSQL connectivity and seeded a real JUJA NAIROBI BOUND report through the live API; dashboard returned non-zero values.
+
+2026-07-19 - Documentation: updated status dates and clarified recent documentation-only changes.
 ```
 
 ### Latest Backend Implementation Step
