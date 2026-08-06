@@ -214,14 +214,18 @@ def build_mobile_sms_summary(session: ReportSession) -> str:
             pass
             
     # Extract mobile_report summary
-    summary = {}
-    above_2t = 0
-    if (
-        "mobile_report" in session.dataframes
-        and session.sections.get("mobile_report", {}).get("status") == "ready"
-    ):
+    summary = session.sections.get("mobile_report", {}).get("summary", {})
+    above_2t = summary.get("above_2t", 0)
+
+    if not summary and "mobile_report" in session.dataframes:
         df = session.dataframes["mobile_report"]
         summary = summarize_mobile_report(df)
+        try:
+            above_2t = int((df["gvw_difference_kg"] > 2000).sum())
+        except Exception:
+            pass
+    elif "above_2t" not in summary and "mobile_report" in session.dataframes:
+        df = session.dataframes["mobile_report"]
         try:
             above_2t = int((df["gvw_difference_kg"] > 2000).sum())
         except Exception:

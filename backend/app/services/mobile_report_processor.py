@@ -378,6 +378,7 @@ def summarize_mobile_report(records: pd.DataFrame) -> dict[str, Any]:
     mismatch_mask = records["mismatch"].str.strip().str.lower().isin(
         {"mismatch", "yes", "true", "1"}
     )
+    above_2t_mask = records["gvw_difference_kg"] > 2000 if "gvw_difference_kg" in records else pd.Series(False, index=records.index)
 
     return {
         "total_records": int(len(records)),
@@ -391,6 +392,7 @@ def summarize_mobile_report(records: pd.DataFrame) -> dict[str, Any]:
         "overloaded_records": int((warned_mask | charged_mask).sum()),
         "total_excess_kg": int(records["excess_kg"].sum()),
         "mismatch_records": int(mismatch_mask.sum()),
+        "above_2t": int(above_2t_mask.sum()),
         "hourly_counts": {
             hour: int(hourly_counts.get(hour, 0))
             for hour in HOURS
