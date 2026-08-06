@@ -57,3 +57,18 @@ backend/.env
 
 # Logs
 *.log
+
+# Stray pip package directories accidentally placed in backend/
+backend/annotated_types/
+backend/anyio/
+backend/dotenv/
+backend/fastapi/
+backend/h11/
+backend/httpcore/
+backend/httpx/
+backend/pydantic/
+backend/pydantic_core/
+backend/pytest/
+backend/starlette/
+backend/typing_extensions.py
+backend/typing_inspection/

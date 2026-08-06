@@ -1,6 +1,32 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.venv/
 venv/
 *.docx
+*.xlsx
 .~lock.*#
+
+# Stray package directories (installed locally, shadow pip packages in Docker)
+annotated_types/
+anyio/
+dotenv/
+fastapi/
+h11/
+httpcore/
+httpx/
+pydantic/
+pydantic_core/
+pytest/
+starlette/
+typing_extensions.py
+typing_inspection/
+
+# Test & dev scripts
+test_*.py
+inspect_page*.py
+
+# Git / IDE
+.git/
+.vscode/
+.env
