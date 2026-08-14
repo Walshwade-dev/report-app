@@ -17,7 +17,8 @@ target_metadata = Base.metadata
 
 
 def database_url() -> str:
-    url = normalize_database_url(get_settings().resolved_database_url)
+    settings = get_settings()
+    url = normalize_database_url(settings.migration_database_url or settings.resolved_database_url)
     if not url:
         raise RuntimeError("DATABASE_URL or REPORT_DATABASE_URL is required for Alembic.")
     return url

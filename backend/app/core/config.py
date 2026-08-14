@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     app_env: str = "production"
     frontend_origins: str = ""
     database_url: str | None = None
+    migration_database_url: str | None = None
     report_database_url: str | None = None
     report_storage_root: str | None = None
     jwt_secret_key: str = "supersecretkeychangeitinproduction"

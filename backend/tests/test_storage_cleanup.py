@@ -40,7 +40,7 @@ def test_cleanup_deletes_old_session_and_all_artifacts(temp_store):
     write_artifact(temp_store.processed_dir, report_id)
     write_artifact(temp_store.previews_dir, report_id)
     write_artifact(temp_store.final_reports_dir, report_id, "final_report.docx")
-    set_metadata_age(temp_store, report_id, age_hours=169)
+    set_metadata_age(temp_store, report_id, age_hours=721)
 
     deleted_report_ids = temp_store.cleanup_expired_sessions()
 
@@ -85,7 +85,7 @@ def test_cleanup_ignores_missing_partial_artifact_folders(temp_store):
     )
     report_id = session.report_id
     write_artifact(temp_store.previews_dir, report_id)
-    set_metadata_age(temp_store, report_id, age_hours=169)
+    set_metadata_age(temp_store, report_id, age_hours=721)
 
     deleted_report_ids = temp_store.cleanup_expired_sessions()
 
@@ -111,7 +111,7 @@ def test_cleanup_skips_paths_that_resolve_outside_storage_root(temp_store):
     outside_file.write_text("do not delete", encoding="utf-8")
     upload_link = temp_store.uploads_dir / report_id
     upload_link.symlink_to(outside_file)
-    set_metadata_age(temp_store, report_id, age_hours=169)
+    set_metadata_age(temp_store, report_id, age_hours=721)
 
     deleted_report_ids = temp_store.cleanup_expired_sessions()
 
@@ -127,7 +127,7 @@ def test_cleanup_rejects_deleted_session_reload(temp_store):
         bound="Thika Bound",
     )
     report_id = session.report_id
-    set_metadata_age(temp_store, report_id, age_hours=169)
+    set_metadata_age(temp_store, report_id, age_hours=721)
 
     temp_store.cleanup_expired_sessions()
 
