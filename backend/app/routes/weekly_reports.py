@@ -219,33 +219,38 @@ async def generate_weekly_report(
     end_str = end_dt.strftime("%d %B %Y").upper()
     base_filename = f"{station.upper()} WEIGHBRIDGE WEEKLY REPORT {start_str} - {end_str}"
     
-    if format == "excel":
-        buffer = build_weekly_excel_report(
-            weekly_data_by_bound,
-            weekly_data_combined,
-            formatted_start,
-            formatted_end,
-            station,
-            prepared_by,
-            approved_by
-        )
-        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        filename = f"{base_filename}.xlsx"
-    else:
-        buffer = build_weekly_pdf_report(
-            weekly_data_by_bound,
-            weekly_data_combined,
-            formatted_start,
-            formatted_end,
-            station,
-            prepared_by,
-            approved_by
-        )
-        media_type = "application/pdf"
-        filename = f"{base_filename}.pdf"
+    try:
+        if format == "excel":
+            buffer = build_weekly_excel_report(
+                weekly_data_by_bound,
+                weekly_data_combined,
+                formatted_start,
+                formatted_end,
+                station,
+                prepared_by,
+                approved_by
+            )
+            media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            filename = f"{base_filename}.xlsx"
+        else:
+            buffer = build_weekly_pdf_report(
+                weekly_data_by_bound,
+                weekly_data_combined,
+                formatted_start,
+                formatted_end,
+                station,
+                prepared_by,
+                approved_by
+            )
+            media_type = "application/pdf"
+            filename = f"{base_filename}.pdf"
 
-    return Response(
-        content=buffer.getvalue(),
-        media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+        return Response(
+            content=buffer.getvalue(),
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
