@@ -10,12 +10,21 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from app.services.preview_renderer import convert_docx_to_pdf
 
-def set_cell_borders(cell):
+def set_cell_borders(cell, outer_only=False, is_first_col=False, is_last_col=False):
     tc = cell._tc
     tcPr = tc.get_or_add_tcPr()
     tcBorders = OxmlElement('w:tcBorders')
     
-    for border_name in ['top', 'left', 'bottom', 'right']:
+    borders = ['top', 'bottom']
+    if not outer_only:
+        borders.extend(['left', 'right'])
+    else:
+        if is_first_col:
+            borders.append('left')
+        if is_last_col:
+            borders.append('right')
+            
+    for border_name in borders:
         border = OxmlElement(f'w:{border_name}')
         border.set(qn('w:val'), 'single')
         border.set(qn('w:sz'), '4')
@@ -147,27 +156,30 @@ def build_weekly_pdf_report(
         title = f"{station.upper()} WEIGHBRIDGE {bound_name.upper()} WEEKLY SUMMARY REPORT"
         _build_table_in_doc(doc, title, columns, data)
 
-    title_combined = f"{station.upper()} WEIGHBRIDGE COMBINED WEEKLY SUMMARY REPORT"
+    title_combined = f"{station.upper()} WEIGHBRIDGE WEEKLY TOTAL SUMMARY REPORT"
     _build_table_in_doc(doc, title_combined, columns, weekly_data_combined)
 
     # Signatures
     sigs_para = doc.add_paragraph()
     sigs_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    run_prep = sigs_para.add_run(f"Prepared by: {prepared_by}")
+    run_prep = sigs_para.add_run(f"PREPARED BY: {prepared_by.upper()}")
     run_prep.bold = True
+    run_prep.font.name = "Calibri"
+    run_prep.font.size = Pt(14)
     
     doc.add_paragraph()
     
     sigs_para2 = doc.add_paragraph()
     sigs_para2.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    run_app = sigs_para2.add_run(f"Approved by: {approved_by}")
+    run_app = sigs_para2.add_run(f"APPROVED BY: {approved_by.upper()}")
     run_app.bold = True
+    run_app.font.name = "Calibri"
+    run_app.font.size = Pt(14)
 
     doc.add_paragraph()
 
     # Footer Table
     footer_table = doc.add_table(rows=1, cols=3)
-    footer_table.style = 'Table Grid'
     set_table_width(footer_table)
     
     f_cells = footer_table.rows[0].cells
@@ -176,15 +188,18 @@ def build_weekly_pdf_report(
     f_cells[2].text = f"FOR DATES: {start_date} TO {end_date}"
 
     # Apply borders and light grey background
-    for cell in f_cells:
-        set_cell_borders(cell)
+    for i, cell in enumerate(f_cells):
+        is_first = (i == 0)
+        is_last = (i == len(f_cells) - 1)
+        set_cell_borders(cell, outer_only=True, is_first_col=is_first, is_last_col=is_last)
         set_cell_background(cell, "EEEEEE")
         cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
         for paragraph in cell.paragraphs:
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             for run in paragraph.runs:
                 run.bold = True
-                run.font.size = Pt(9)
+                run.font.name = "Calibri"
+                run.font.size = Pt(14)
 
     docx_buffer = io.BytesIO()
     doc.save(docx_buffer)

@@ -16,10 +16,12 @@ def _write_table_to_sheet(worksheet, start_row: int, title: str, columns: list[s
     title_cell.font = Font(name="Calibri", bold=True, size=14)
     title_cell.alignment = Alignment(horizontal="center", vertical="center")
     title_cell.fill = slate_fill
+    worksheet.row_dimensions[start_row].height = 30
     
     # Headers
     header_row_1 = start_row + 1
     header_row_2 = start_row + 2
+    worksheet.row_dimensions[header_row_1].height = 82.5
     for col_idx, col_name in enumerate(columns, start=1):
         cell = worksheet.cell(row=header_row_1, column=col_idx)
         if col_idx < 18:
@@ -137,11 +139,9 @@ def build_weekly_excel_report(
         for bound_name, data in weekly_data_by_bound.items():
             title = f"{station.upper()} WEIGHBRIDGE {bound_name.upper()} WEEKLY SUMMARY REPORT"
             current_row = _write_table_to_sheet(worksheet, current_row, title, columns, data)
-            current_row += 3 # spacing
 
-        title_combined = f"{station.upper()} WEIGHBRIDGE COMBINED WEEKLY SUMMARY REPORT"
+        title_combined = f"{station.upper()} WEIGHBRIDGE WEEKLY TOTAL SUMMARY REPORT"
         current_row = _write_table_to_sheet(worksheet, current_row, title_combined, columns, weekly_data_combined)
-        current_row += 2
 
         # Column widths
         worksheet.column_dimensions["A"].width = 15
@@ -150,12 +150,12 @@ def build_weekly_excel_report(
 
         # Signatures
         prep_cell = worksheet.cell(row=current_row + 2, column=1)
-        prep_cell.value = f"Prepared by: {prepared_by}"
-        prep_cell.font = Font(bold=True)
+        prep_cell.value = f"PREPARED BY: {prepared_by.upper()}"
+        prep_cell.font = Font(name="Calibri", bold=True, size=14)
         
         app_cell = worksheet.cell(row=current_row + 4, column=1)
-        app_cell.value = f"Approved by: {approved_by}"
-        app_cell.font = Font(bold=True)
+        app_cell.value = f"APPROVED BY: {approved_by.upper()}"
+        app_cell.font = Font(name="Calibri", bold=True, size=14)
         
         # Footer Table
         footer_row = current_row + 6
@@ -181,9 +181,14 @@ def build_weekly_excel_report(
         for c in range(1, 21):
             cell = worksheet.cell(row=footer_row, column=c)
             cell.fill = slate_fill
-            cell.border = thin_border
+            cell.border = Border(
+                top=Side(style='thin'),
+                bottom=Side(style='thin'),
+                left=Side(style='thin') if c == 1 else None,
+                right=Side(style='thin') if c == 20 else None
+            )
             if c in [1, 9, 15]:
-                cell.font = Font(name="Calibri", bold=True, size=10)
+                cell.font = Font(name="Calibri", bold=True, size=14)
                 cell.alignment = Alignment(horizontal="center", vertical="center")
 
     buffer.seek(0)

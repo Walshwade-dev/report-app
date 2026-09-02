@@ -68,7 +68,9 @@ async def generate_weekly_report(
         try:
             session = report_session_store.get(rid)
             if session and session.report_date in dates and session.station and session.station.lower() == station.lower():
-                sessions.append(session)
+                is_mobile = ("mobile" in session.station.lower() or "mobile" in (session.bound or "").lower() or session.sections.get("mobile_report", {}).get("status") == "ready")
+                if not is_mobile:
+                    sessions.append(session)
         except:
             pass
 
