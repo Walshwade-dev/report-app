@@ -10,6 +10,9 @@ from typing import Any
 def _write_table_to_sheet(worksheet, start_row: int, title: str, columns: list[str], data: list[dict]) -> int:
     # Title
     slate_fill = PatternFill(start_color="EEEEEE", end_color="EEEEEE", fill_type="solid")
+    thick_side = Side(style='thick')
+    thin_side = Side(style='thin')
+    
     worksheet.merge_cells(start_row=start_row, start_column=1, end_row=start_row, end_column=len(columns))
     title_cell = worksheet.cell(row=start_row, column=1)
     title_cell.value = title
@@ -17,6 +20,10 @@ def _write_table_to_sheet(worksheet, start_row: int, title: str, columns: list[s
     title_cell.alignment = Alignment(horizontal="center", vertical="center")
     title_cell.fill = slate_fill
     worksheet.row_dimensions[start_row].height = 30
+    
+    for c in range(1, len(columns) + 1):
+        cell = worksheet.cell(row=start_row, column=c)
+        cell.border = Border(top=thick_side, bottom=thick_side, left=thin_side, right=thin_side)
     
     # Headers
     header_row_1 = start_row + 1
@@ -79,13 +86,13 @@ def _write_table_to_sheet(worksheet, start_row: int, title: str, columns: list[s
                     pass
                     
             cell.value = cell_value
-            cell.border = thin_border
             cell.alignment = Alignment(horizontal="center", vertical="center")
-            
             if is_total_row:
                 cell.font = Font(name="Calibri", bold=True, size=14)
                 cell.fill = slate_fill
+                cell.border = Border(top=thick_side, bottom=thick_side, left=thin_side, right=thin_side)
             else:
+                cell.border = thin_border
                 if c_idx == 1:
                     cell.font = Font(name="Calibri", bold=True, size=14)
                     cell.fill = slate_fill
@@ -97,7 +104,15 @@ def _write_table_to_sheet(worksheet, start_row: int, title: str, columns: list[s
                 
     for r in range(header_row_1, header_row_2 + 1):
         for c in range(1, 21):
-            worksheet.cell(row=r, column=c).border = thin_border
+            cell = worksheet.cell(row=r, column=c)
+            top_style = thick_side if r == header_row_1 else thin_side
+            bottom_style = thick_side if r == header_row_2 else thin_side
+            
+            # Preserve existing properties
+            current_left = cell.border.left if cell.border else thin_side
+            current_right = cell.border.right if cell.border else thin_side
+            
+            cell.border = Border(top=top_style, bottom=bottom_style, left=current_left, right=current_right)
             
     return current_row + len(df)
 
