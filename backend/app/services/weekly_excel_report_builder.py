@@ -28,7 +28,8 @@ def _write_table_to_sheet(worksheet, start_row: int, title: str, columns: list[s
     # Headers
     header_row_1 = start_row + 1
     header_row_2 = start_row + 2
-    worksheet.row_dimensions[header_row_1].height = 82.5
+    worksheet.row_dimensions[header_row_1].height = 37.5
+    worksheet.row_dimensions[header_row_2].height = 61.5
     for col_idx, col_name in enumerate(columns, start=1):
         cell = worksheet.cell(row=header_row_1, column=col_idx)
         if col_idx < 18:
@@ -108,11 +109,8 @@ def _write_table_to_sheet(worksheet, start_row: int, title: str, columns: list[s
             top_style = thick_side if r == header_row_1 else thin_side
             bottom_style = thick_side if r == header_row_2 else thin_side
             
-            # Preserve existing properties
-            current_left = cell.border.left if cell.border else thin_side
-            current_right = cell.border.right if cell.border else thin_side
-            
-            cell.border = Border(top=top_style, bottom=bottom_style, left=current_left, right=current_right)
+            # Ensure borders all round
+            cell.border = Border(top=top_style, bottom=bottom_style, left=thin_side, right=thin_side)
             
     return current_row + len(df)
 

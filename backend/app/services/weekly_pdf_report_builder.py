@@ -49,6 +49,11 @@ def set_table_width(table):
     tblW.set(qn('w:w'), '5000')
     tblW.set(qn('w:type'), 'pct')
     tblPr.append(tblW)
+    
+    # Force fixed layout to ensure table doesn't overflow margins
+    tblLayout = OxmlElement('w:tblLayout')
+    tblLayout.set(qn('w:type'), 'fixed')
+    tblPr.append(tblLayout)
 
 def _build_table_in_doc(doc, title_text: str, columns: list[str], data: list[dict]):
     title = doc.add_paragraph()
@@ -131,8 +136,8 @@ def build_weekly_pdf_report(
     section.orientation = WD_ORIENT.LANDSCAPE
     section.page_width = Inches(11)
     section.page_height = Inches(8.5)
-    section.left_margin = Cm(1)
-    section.right_margin = Cm(1)
+    section.left_margin = Cm(0.5)
+    section.right_margin = Cm(0.5)
     section.top_margin = Cm(1)
     section.bottom_margin = Cm(1)
     
