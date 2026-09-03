@@ -68,7 +68,8 @@ def _build_table_in_doc(doc, title_text: str, columns: list[str], data: list[dic
 
     hdr_cells = table.rows[0].cells
     for i in range(17):
-        hdr_cells[i].text = columns[i]
+        display_text = columns[i].replace(" = ", "\n=").replace(" (", "\n(").replace(" & ", "\n& ")
+        hdr_cells[i].text = display_text
         hdr_cells[i].merge(table.rows[1].cells[i])
     
     hdr_cells[17].text = "Exemption Permits"
@@ -85,7 +86,7 @@ def _build_table_in_doc(doc, title_text: str, columns: list[str], data: list[dic
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 for r in paragraph.runs:
                     r.bold = True
-                    r.font.size = Pt(7)
+                    r.font.size = Pt(5)
 
     for row_data in data:
         row_cells = table.add_row().cells
@@ -96,7 +97,7 @@ def _build_table_in_doc(doc, title_text: str, columns: list[str], data: list[dic
             for paragraph in row_cells[idx].paragraphs:
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 for r in paragraph.runs:
-                    r.font.size = Pt(7)
+                    r.font.size = Pt(5)
     
     df = pd.DataFrame(data, columns=columns)
     totals_row = table.add_row().cells
@@ -110,13 +111,13 @@ def _build_table_in_doc(doc, title_text: str, columns: list[str], data: list[dic
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             for r in paragraph.runs:
                 r.bold = True
-                r.font.size = Pt(7)
+                r.font.size = Pt(5)
 
     for paragraph in totals_row[0].paragraphs:
         paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
         for r in paragraph.runs:
             r.bold = True
-            r.font.size = Pt(7)
+            r.font.size = Pt(5)
 
     doc.add_paragraph()
 
@@ -213,3 +214,4 @@ def build_weekly_pdf_report(
     pdf_content, _ = convert_docx_to_pdf(docx_buffer, "weekly_report.docx")
     
     return io.BytesIO(pdf_content)
+

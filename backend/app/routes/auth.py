@@ -183,10 +183,10 @@ def list_users(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
-    if current_user.role != "admin":
+    if current_user.role not in ["admin", "developer"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin privileges required.",
+            detail="Admin or Developer privileges required.",
         )
     return db.query(User).all()
 
@@ -252,3 +252,44 @@ def delete_user_by_admin(
     db.delete(user)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+class UserUpdateRole(BaseModel):
+    role: str = Field(..., max_length=32)
+
+@users_router.patch("/{user_id}/role", response_model=UserResponse)
+def update_user_role(
+    user_id: UUID,
+    role_in: UserUpdateRole,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    if current_user.role not in ["admin", "developer"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin or Developer privileges required.",
+        )
+        
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+        
+    if current_user.role == "developer" and user.role == "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Developers cannot modify admin roles.",
+        )
+        
+    if user.id == current_user.id and role_in.role != current_user.role:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot change your own role.",
+        )
+        
+    user.role = role_in.role
+    db.commit()
+    db.refresh(user)
+    return user
