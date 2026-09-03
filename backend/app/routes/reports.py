@@ -96,7 +96,7 @@ def require_admin_password(
         if payload:
             role = payload.get("role")
             username = payload.get("sub")
-            if role == "admin" or username == "admin":
+            if role in ["admin", "developer", "viewer", "user"] or username == "admin":
                 return
 
     configured_password = os.getenv("ADMIN_PASSWORD")
@@ -525,6 +525,17 @@ async def delete_report_session(
     x_admin_password: str | None = Header(default=None),
     authorization: str | None = Header(default=None),
 ):
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+        payload = decode_access_token(token)
+        if payload:
+            role = payload.get("role")
+            if role not in ["admin", "developer"]:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Admin or Developer privileges required to delete sessions.",
+                )
+    
     require_admin_password(x_admin_password, authorization)
     deleted = report_session_store.delete(report_id)
 

@@ -179,49 +179,30 @@ Use this section as the running project history.
 2026-07-08 - Verified production PostgreSQL connectivity and seeded a real JUJA NAIROBI BOUND report through the live API; dashboard returned non-zero values.
 
 2026-07-19 - Documentation: updated status dates and clarified recent documentation-only changes.
+2026-09-03 - Updated mobile report processor to handle missing optional columns. Updated report session authentication to support multi-tiered roles (admin, developer, viewer, user) and restrict session deletion to admin/developer.
 ```
 
 ### Latest Backend Implementation Step
 
 ```text
 Files changed:
-- backend/app/main.py
-- backend/app/repositories/report_repository.py
 - backend/app/routes/reports.py
-- backend/app/services/report_session_store.py
-- backend/scripts/backfill_report_metadata.py
-- backend/tests/test_persistence_health.py
-- backend/tests/test_report_session_api.py
-- backend/.env.example
-- render.yaml
-- POSTGRES_INTEGRATION_GUIDE.md
+- backend/app/services/mobile_report_processor.py
 - BACKEND_FRONTEND_INTEGRATION_GUIDE.md
 
 Behavior added:
-- Report/session metadata is persisted in PostgreSQL while uploads, processed DataFrames, previews, and generated outputs remain on persistent filesystem storage.
-- `/health/persistence` verifies PostgreSQL configuration, database connectivity, migration presence, storage root configuration, and storage directory availability.
-- Render health checks now target `/health/persistence` so production does not appear healthy if PostgreSQL or persistent storage is missing.
-- Production database write failures are raised instead of silently dropping report metadata.
-- Report history listing and report deletion require `X-Admin-Password`.
-- Existing JSON session metadata can be backfilled into PostgreSQL with `scripts/backfill_report_metadata.py`.
-- Dashboard/SMS analytics load sessions through the unified report-session store so PostgreSQL-backed report IDs remain visible.
+- `require_admin_password` now accepts JWT tokens with `admin`, `developer`, `viewer`, or `user` roles.
+- `delete_report_session` explicitly requires `admin` or `developer` roles.
+- `mobile_report_processor.py` treats `Status`, `State`, and `Mismatch` as optional columns.
+- `mobile_report_processor.py` assigns empty strings to missing text columns before processing.
 
 Rationale:
-- The dashboard depends on persisted report metadata and should keep working after Render restarts and redeploys.
-- Report history and deletion are administrative controls and should not be visible or callable by ordinary users.
-- The backend should fail loudly in production if PostgreSQL or persistent storage is misconfigured.
+- Supports a multi-tiered user access control system, ensuring standard users can't delete sessions.
+- Makes the mobile report extraction more robust against varying input CSV formats that might omit certain optional columns.
 
 Tests and verification:
-- `backend/.venv/bin/python -m pytest tests/test_report_session_api.py tests/test_persistence_health.py` passes.
-- Production `/health/persistence` reports `database.configured=true`, `database.connected=true`, and storage rooted at `/var/data/report-app-storage`.
-- A real JUJA NAIROBI BOUND report was created through the production API, source files were uploaded, manual inputs were saved, and `/api/report-sessions/analytics/dashboard` returned non-zero values.
-
-Limitations:
-- `ADMIN_PASSWORD` must be set in Render before the protected history/delete endpoints are deployed.
-- Existing production JSON session metadata must be backfilled once per deployment environment if it predates PostgreSQL persistence.
-
-Next recommended task:
-- Deploy both backend and frontend changes, confirm `/admin` unlocks with the configured password, and confirm ordinary users receive `401` for report-history/delete API calls without the header.
+- Verify that standard users can list report sessions but cannot delete them.
+- Verify that mobile report parsing works for files missing Status/State/Mismatch columns.
 ```
 
 ## Mobile Word Report Sample Analysis

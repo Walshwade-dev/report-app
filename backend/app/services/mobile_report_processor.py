@@ -26,13 +26,13 @@ WEIGHBRIDGE_REGISTER_COLUMNS = [
     "GVW [KG]",
     "Excess",
     "Excess [KG]",
-    "Status",
-    "State",
-    "Mismatch",
 ]
 
 OPTIONAL_WEIGHBRIDGE_REGISTER_COLUMNS = [
     "Remarks",
+    "Status",
+    "State",
+    "Mismatch",
 ]
 
 MOBILE_REPORT_COLUMN_MAPPING = {
@@ -207,6 +207,8 @@ def normalize_mobile_report(
     records = records.loc[records["date_time"].notna()].reset_index(drop=True)
 
     for column in TEXT_COLUMNS:
+        if column not in records.columns:
+            records[column] = ""
         records[column] = records[column].fillna("").astype(str).str.strip()
 
     for column in NUMERIC_COLUMNS:
