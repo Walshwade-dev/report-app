@@ -11,7 +11,6 @@ from app.db.models import User
 from app.routes.auth import get_current_user
 from app.core.security import decode_access_token
 from app.services.report_worker import enqueue_build_final_report
-from fastapi_cache.decorator import cache
 
 from app.services.cleaner_core import clean_with_template
 from app.services.daily_hour_processor import (
@@ -567,7 +566,6 @@ async def delete_report_session(
 
 
 @router.get("/report-sessions/{report_id}/summary-cards")
-@cache(expire=30)
 async def get_report_session_summary_cards(report_id: str):
     return build_summary_cards(require_session(report_id))
 
@@ -713,7 +711,6 @@ def add_static_kpis(target: dict, session: ReportSession) -> None:
 
 
 @router.get("/report-sessions/analytics/dashboard")
-@cache(expire=30)
 async def get_analytics_dashboard(
     static_date: str | None = None,
     mobile_date: str | None = None,
