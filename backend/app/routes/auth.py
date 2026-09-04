@@ -226,7 +226,7 @@ def create_user_by_admin(
 
 @users_router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 def delete_user_by_admin(
-    user_id: UUID,
+    user_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Response:
@@ -236,13 +236,21 @@ def delete_user_by_admin(
             detail="Admin privileges required.",
         )
     
-    if current_user.id == user_id:
+    try:
+        target_uuid = UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid user ID format",
+        )
+
+    if current_user.id == target_uuid:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot delete current active administrator",
         )
         
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.id == target_uuid).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -255,11 +263,11 @@ def delete_user_by_admin(
 
 
 class UserUpdateRole(BaseModel):
-    role: str = Field(..., max_length=32)
+    role: str = Field(..., min_length=1, max_length=32)
 
 @users_router.patch("/{user_id}/role", response_model=UserResponse)
 def update_user_role(
-    user_id: UUID,
+    user_id: str,
     role_in: UserUpdateRole,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -269,13 +277,23 @@ def update_user_role(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin or Developer privileges required.",
         )
+
+    try:
+        target_uuid = UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid user ID format",
+        )
         
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(User.id == target_uuid).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
         )
+
+    normalized_role = role_in.role.strip().lower()
         
     if current_user.role == "developer" and user.role == "admin":
         raise HTTPException(
@@ -283,13 +301,13 @@ def update_user_role(
             detail="Developers cannot modify admin roles.",
         )
         
-    if user.id == current_user.id and role_in.role != current_user.role:
+    if user.id == current_user.id and normalized_role != current_user.role:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="You cannot change your own role.",
         )
         
-    user.role = role_in.role
+    user.role = normalized_role
     db.commit()
     db.refresh(user)
     return user
