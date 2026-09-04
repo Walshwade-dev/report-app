@@ -311,7 +311,25 @@ def daily_hour_total_column(session: ReportSession, column: str) -> int | None:
     return int(daily_df.loc[totals_mask].iloc[-1].get(column, 0))
 
 
-def available_report_sessions() -> list[tuple[ReportSession, float]]:
+import time
+
+_SESSIONS_CACHE: tuple[list[tuple[ReportSession, float]], float] | None = None
+_CACHE_TTL_SECONDS = 60.0
+
+
+def invalidate_sessions_cache():
+    global _SESSIONS_CACHE
+    _SESSIONS_CACHE = None
+
+
+def available_report_sessions(force_refresh: bool = False) -> list[tuple[ReportSession, float]]:
+    global _SESSIONS_CACHE
+    now = time.time()
+    if not force_refresh and _SESSIONS_CACHE is not None:
+        cached_data, timestamp = _SESSIONS_CACHE
+        if now - timestamp < _CACHE_TTL_SECONDS:
+            return cached_data
+
     report_ids = report_session_store.list_report_ids()
     total_ids = len(report_ids)
     sessions: list[tuple[ReportSession, float]] = []
@@ -340,6 +358,7 @@ def available_report_sessions() -> list[tuple[ReportSession, float]]:
         except Exception:
             logger.exception("Failed to load report session for analytics: %s", report_id)
 
+    _SESSIONS_CACHE = (sessions, now)
     return sessions
 
 
@@ -436,6 +455,7 @@ async def create_report_session(payload: ReportSessionCreate, current_user: User
         prepared_by=payload.prepared_by,
         confirmed_by=payload.confirmed_by,
     )
+    invalidate_sessions_cache()
     return serialize_session(session)
 
 
@@ -538,6 +558,7 @@ async def delete_report_session(
     
     require_admin_password(x_admin_password, authorization)
     deleted = report_session_store.delete(report_id)
+    invalidate_sessions_cache()
 
     if not deleted:
         raise HTTPException(status_code=404, detail="Report session not found")
