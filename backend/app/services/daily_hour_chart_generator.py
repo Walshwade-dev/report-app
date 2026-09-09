@@ -1,6 +1,7 @@
 import io
 
-import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 import pandas as pd
 from docx import Document
 from docx.enum.table import (
@@ -212,7 +213,8 @@ def build_daily_hour_chart_data(daily_df: pd.DataFrame) -> pd.DataFrame:
 def create_daily_hour_chart_image(chart_df, width=6.61, height=6.57):
     buffer = io.BytesIO()
 
-    fig = plt.figure(figsize=(width, height), dpi=150)
+    fig = Figure(figsize=(width, height), dpi=150)
+    canvas = FigureCanvasAgg(fig)
     ax = fig.add_axes([0.08, 0.18, 0.89, 0.72])
     fig.patch.set_facecolor("white")
     fig.patch.set_edgecolor("#D9D9D9")
@@ -261,8 +263,7 @@ def create_daily_hour_chart_image(chart_df, width=6.61, height=6.57):
         columnspacing=1.1,
     )
 
-    fig.savefig(buffer, format="png", dpi=150)
-    plt.close()
+    canvas.print_figure(buffer, format="png", dpi=150)
 
     buffer.seek(0)
     return buffer

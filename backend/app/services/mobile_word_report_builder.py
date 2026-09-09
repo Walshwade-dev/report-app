@@ -4,7 +4,8 @@ from datetime import datetime
 from typing import Any, TYPE_CHECKING
 from xml.sax.saxutils import escape
 
-import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 import pandas as pd
 
 if TYPE_CHECKING:
@@ -69,42 +70,154 @@ def _manual_value(session, *keys: str, default: Any = "") -> Any:
     return default
 
 
+def _shift_cutoff_hour(shifts: list[dict[str, Any]]) -> int:
+    if shifts:
+        raw_end = str(shifts[0].get("end_time") or "").strip().replace(":", "")
+        if raw_end.isdigit():
+            val = int(raw_end)
+            if val >= 100:
+                return val // 100
+            elif 0 <= val <= 24:
+                return val
+    return 8
+
+
 def _manual_shifts(session) -> list[dict[str, Any]]:
     mobile = _manual_source(session)
     shifts = mobile.get("shifts")
+    valid_shifts = []
     if isinstance(shifts, list):
-        valid_shifts = [shift for shift in shifts if isinstance(shift, dict)]
-        if valid_shifts:
-            return valid_shifts
+        valid_shifts = [dict(shift) for shift in shifts if isinstance(shift, dict)]
 
-    return [
-        {
+    bound = str(getattr(session, "bound", "") or "").strip().lower()
+    is_mobile_two = bool(re.search(r"\b(2|two|mobile_2)\b", bound)) or bool(
+        _manual_value(
+            session,
+            "shift_two_start_mileage",
+            "shiftTwoStartMileage",
+            "shift_two_mileage_start",
+            "shift_two_danka_staff",
+            "shiftTwoDmEntry",
+        )
+    )
+
+    if not valid_shifts:
+        shift_1 = {
             "label": "Shift 1",
             "start_time": "0000",
-            "end_time": "0000",
-            "danka_staff": _manual_value(session, "danka_staff", "computer_operator"),
-            "police_officers": _manual_value(session, "police_officers", "police"),
+            "end_time": "0800",
+            "danka_staff": _manual_value(
+                session,
+                "danka_staff",
+                "danka_officers",
+                "computer_operator",
+                "computer_operators",
+                "dmEntry",
+            ),
+            "police_officers": _manual_value(
+                session,
+                "police_officers",
+                "police",
+                "policeOfficerOne",
+            ),
             "mobile_vehicle": _manual_value(
                 session,
                 "mobile_vehicle",
                 "vehicle_used",
                 "vehicle",
+                "mobileVehicleReg",
             ),
-            "mileage_start": _manual_value(session, "mileage_start"),
-            "mileage_end": _manual_value(session, "mileage_end"),
+            "mileage_start": _manual_value(
+                session,
+                "mileage_start",
+                "startMileage",
+                "start_mileage",
+            ),
+            "mileage_end": _manual_value(
+                session,
+                "mileage_end",
+                "stopMileage",
+                "stop_mileage",
+                "mileage_stop",
+            ),
         }
-    ]
+        valid_shifts = [shift_1]
+
+    if is_mobile_two and len(valid_shifts) == 1:
+        shift_2 = {
+            "label": "Shift 2",
+            "start_time": "0800",
+            "end_time": "0000",
+            "danka_staff": _manual_value(
+                session,
+                "shift_two_danka_staff",
+                "shiftTwoDmEntry",
+                "shift_two_staff",
+                "shiftTwoStaff",
+            ),
+            "police_officers": _manual_value(
+                session,
+                "shift_two_police_officers",
+                "shiftTwoPoliceOfficerOne",
+                "shift_two_police",
+                "shiftTwoPolice",
+            ),
+            "mobile_vehicle": _manual_value(
+                session,
+                "shift_two_mobile_vehicle",
+                "shiftTwoMobileVehicleReg",
+                default=valid_shifts[0].get("mobile_vehicle", ""),
+            ),
+            "mileage_start": _manual_value(
+                session,
+                "shift_two_start_mileage",
+                "shiftTwoStartMileage",
+                "shift_two_mileage_start",
+            ),
+            "mileage_end": _manual_value(
+                session,
+                "shift_two_stop_mileage",
+                "shiftTwoStopMileage",
+                "shift_two_mileage_end",
+                "shift_two_end_mileage",
+            ),
+        }
+        valid_shifts.append(shift_2)
+
+    if len(valid_shifts) >= 2:
+        s1 = valid_shifts[0]
+        s2 = valid_shifts[1]
+        if s1.get("mileage_start") in (None, ""):
+            s1["mileage_start"] = _manual_value(session, "startMileage", "mileage_start", "start_mileage")
+        if s1.get("mileage_end") in (None, ""):
+            s1["mileage_end"] = _manual_value(session, "stopMileage", "mileage_end", "stop_mileage")
+        if s1.get("mobile_vehicle") in (None, ""):
+            s1["mobile_vehicle"] = _manual_value(session, "mobile_vehicle", "vehicle_used", "vehicle", "mobileVehicleReg")
+        if s1.get("danka_staff") in (None, ""):
+            s1["danka_staff"] = _manual_value(session, "danka_staff", "computer_operator", "dmEntry")
+
+        if s2.get("mileage_start") in (None, ""):
+            s2["mileage_start"] = _manual_value(session, "shift_two_start_mileage", "shiftTwoStartMileage", "shift_two_mileage_start")
+        if s2.get("mileage_end") in (None, ""):
+            s2["mileage_end"] = _manual_value(session, "shift_two_stop_mileage", "shiftTwoStopMileage", "shift_two_mileage_end", "shift_two_end_mileage")
+        if s2.get("mobile_vehicle") in (None, ""):
+            s2["mobile_vehicle"] = _manual_value(session, "shift_two_mobile_vehicle", "shiftTwoMobileVehicleReg") or s1.get("mobile_vehicle", "")
+        if s2.get("danka_staff") in (None, ""):
+            s2["danka_staff"] = _manual_value(session, "shift_two_danka_staff", "shiftTwoDmEntry", "shift_two_staff", "shiftTwoStaff")
+
+    return valid_shifts
 
 
 def _shift_for_record(record, shifts: list[dict[str, Any]]) -> dict[str, Any]:
     if len(shifts) < 2:
         return shifts[0]
 
-    date_time = pd.to_datetime(record.get("date_time"), errors="coerce")
+    date_time = pd.to_datetime(record.get("date_time"), errors="coerce", dayfirst=True)
     if pd.isna(date_time):
         return shifts[0]
 
-    return shifts[0] if date_time.hour < 8 else shifts[1]
+    cutoff = _shift_cutoff_hour(shifts)
+    return shifts[0] if date_time.hour < cutoff else shifts[1]
 
 
 def _manual_int(session, *keys: str, default: int = 0) -> int:
@@ -479,7 +592,8 @@ def _create_mobile_hourly_chart(records: pd.DataFrame) -> io.BytesIO:
     upper, tick_step = _mobile_hourly_chart_scale(max_value)
 
     buffer = io.BytesIO()
-    fig = plt.figure(figsize=(6.3, 4.1), dpi=150)
+    fig = Figure(figsize=(6.3, 4.1), dpi=150)
+    canvas = FigureCanvasAgg(fig)
     ax = fig.add_axes((0.08, 0.2, 0.9, 0.66))
     fig.patch.set_facecolor("white")
     fig.patch.set_edgecolor("#D9D9D9")
@@ -499,8 +613,7 @@ def _create_mobile_hourly_chart(records: pd.DataFrame) -> io.BytesIO:
         frameon=False,
     )
 
-    fig.savefig(buffer, format="png", dpi=150)
-    plt.close(fig)
+    canvas.print_figure(buffer, format="png", dpi=150)
     buffer.seek(0)
     return buffer
 
@@ -927,14 +1040,16 @@ def _add_mileage_table(doc: Document, session) -> None:
             _set_cell_width(table.cell(row_index, col), widths[col])
 
     total_label = _format_number(total_kms) if has_total_kms else ""
-    _set_cell_text(
-        table.cell(3, 2),
-        f"{total_label} KMS" if total_label else "",
-        font_name="Calibri",
-        size=14,
-        bold=True,
-        valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM,
-    )
+    for col in range(4):
+        _set_cell_text(
+            table.cell(3, col),
+            (f"{total_label} KMS" if total_label else "") if col == 2 else "",
+            font_name="Calibri",
+            size=14,
+            bold=(col == 2),
+            valign=WD_CELL_VERTICAL_ALIGNMENT.BOTTOM,
+        )
+        _set_cell_width(table.cell(3, col), widths[col])
 
 
 def _split_location_people(value: Any) -> list[str]:

@@ -417,6 +417,14 @@ class ReportSessionStore:
     ) -> ReportSession:
         # Check for an existing session in the same slot
         existing = self.find_by_slot(report_date, station, bound)
+        if existing and existing.final_report_status == "processing":
+            logger.warning(
+                "Active report build in flight for slot (%s, %s, %s); allocating new isolated session",
+                report_date,
+                station,
+                bound,
+            )
+            existing = None
         if existing:
             session = self.reset_session(existing.report_id)
             # Update metadata fields that may have changed
@@ -499,11 +507,13 @@ class ReportSessionStore:
 
         return session
 
-    def get(self, report_id: str) -> ReportSession | None:
+    def get(self, report_id: str, force_reload: bool = False) -> ReportSession | None:
+        if force_reload:
+            self._sessions.pop(report_id, None)
         return self._sessions.get(report_id) or self._load_session_from_disk(report_id)
 
-    def require(self, report_id: str) -> ReportSession:
-        session = self.get(report_id)
+    def require(self, report_id: str, force_reload: bool = False) -> ReportSession:
+        session = self.get(report_id, force_reload=force_reload)
 
         if session is None:
             raise KeyError(report_id)
@@ -713,7 +723,9 @@ class ReportSessionStore:
     ) -> Path:
         preview_path = self.preview_cache_path(report_id, section_name, preview_format, page)
         preview_path.parent.mkdir(parents=True, exist_ok=True)
-        preview_path.write_bytes(content)
+        temp_path = preview_path.with_suffix(f"{preview_path.suffix}.tmp.{uuid4().hex}")
+        temp_path.write_bytes(content)
+        temp_path.replace(preview_path)
         self.repository.save_preview_metadata(
             report_id=report_id,
             section_name=section_name,

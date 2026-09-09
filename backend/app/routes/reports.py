@@ -2,6 +2,9 @@ import logging
 import os
 import secrets
 from datetime import datetime
+from typing import Any
+
+import pandas as pd
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile, Depends, BackgroundTasks
 from fastapi.responses import Response
@@ -19,9 +22,14 @@ from app.services.daily_hour_processor import (
     build_daily_hour_metrics,
     distribute_wideloads,
 )
+from app.services.daily_hour_processor import HOURS
 from app.services.excel_report_builder import build_excel_report
 from app.services.final_report_builder import build_final_report
-from app.services.mobile_excel_report_builder import build_mobile_excel_report
+from app.services.mobile_excel_report_builder import (
+    build_mobile_excel_report,
+    _manual_shifts,
+    _shift_cutoff_hour,
+)
 from app.services.mobile_report_processor import (
     mobile_report_response,
     normalize_mobile_report,
@@ -636,6 +644,30 @@ def mobile_report_manual_inputs(session: ReportSession) -> dict:
     return {}
 
 
+def parse_danka_team(staff_value: Any) -> dict | None:
+    if staff_value is None:
+        return None
+    cleaned_str = str(staff_value).strip()
+    if not cleaned_str:
+        return None
+    names = []
+    for part in cleaned_str.replace("\\", "/").split("/"):
+        cleaned = " ".join(part.strip().split())
+        if cleaned:
+            names.append(cleaned.upper())
+    if not names:
+        return None
+
+    dm_name = next((name for name in names if "DM" in name.split()), names[0])
+    drivers = [name for name in names if name != dm_name]
+
+    return {
+        "dm": dm_name,
+        "drivers": drivers,
+        "team": " / ".join([dm_name, *drivers]),
+    }
+
+
 def danka_staff_names(session: ReportSession) -> list[str]:
     staff_value = str(mobile_report_manual_inputs(session).get("danka_staff") or "").strip()
     if not staff_value:
@@ -651,18 +683,29 @@ def danka_staff_names(session: ReportSession) -> list[str]:
 
 
 def danka_staff_team(session: ReportSession) -> dict | None:
-    names = danka_staff_names(session)
-    if not names:
-        return None
+    return parse_danka_team(mobile_report_manual_inputs(session).get("danka_staff"))
 
-    dm_name = next((name for name in names if "DM" in name.split()), names[0])
-    drivers = [name for name in names if name != dm_name]
 
-    return {
-        "dm": dm_name,
-        "drivers": drivers,
-        "team": " / ".join([dm_name, *drivers]),
-    }
+def _shift_index_for_record(record: Any, shifts: list[dict[str, Any]]) -> int:
+    if len(shifts) < 2:
+        return 0
+    date_time = None
+    if isinstance(record, dict):
+        date_time = record.get("date_time")
+    elif hasattr(record, "get"):
+        date_time = record.get("date_time")
+    elif hasattr(record, "__getitem__"):
+        try:
+            date_time = record["date_time"]
+        except Exception:
+            date_time = None
+
+    parsed_dt = pd.to_datetime(date_time, errors="coerce", dayfirst=True)
+    if pd.isna(parsed_dt):
+        return 0
+
+    cutoff = _shift_cutoff_hour(shifts)
+    return 0 if parsed_dt.hour < cutoff else 1
 
 
 def normalize_mobile_filter(value: str | None) -> str | None:
@@ -1037,13 +1080,13 @@ async def get_dms_performance(date: str | None = None):
     report_count = 0
 
     for session, _ in latest_mobile_sessions.values():
-        team = danka_staff_team(session)
-        if not team:
+        shifts = _manual_shifts(session)
+        default_team = danka_staff_team(session)
+        shift_teams = [parse_danka_team(shift.get("danka_staff")) or default_team for shift in shifts]
+
+        if not any(shift_teams):
             continue
 
-        summary = session.sections.get("mobile_report", {}).get("summary", {})
-        weighed = int(summary.get("total_trucks_weighed", 0) or 0)
-        charged = int(summary.get("charged_trucks", 0) or 0)
         report_count += 1
 
         is_current_month = False
@@ -1053,29 +1096,81 @@ async def get_dms_performance(date: str | None = None):
         except Exception:
             pass
 
-        dm_name = team["dm"]
-        row = stats.setdefault(
-            dm_name,
-            {
-                "name": dm_name,
-                "surname": dm_name.split()[-1],
-                "team": team["team"],
-                "drivers": [],
-                "weighed": 0,
-                "charged": 0,
-                "monthCharged": 0,
-                "reports": 0,
-            },
-        )
-        for driver in team["drivers"]:
-            if driver not in row["drivers"]:
-                row["drivers"].append(driver)
-        row["team"] = " / ".join([dm_name, *row["drivers"]])
-        row["weighed"] += weighed
-        row["charged"] += charged
-        row["reports"] += 1
-        if is_current_month:
-            row["monthCharged"] += charged
+        records = session.dataframes.get("mobile_report")
+        if records is None or getattr(records, "empty", True):
+            processed_path = report_session_store._processed_section_path(session.report_id, "mobile_report")
+            if processed_path.exists():
+                try:
+                    records = pd.read_pickle(processed_path)
+                except Exception:
+                    records = None
+
+        shift_weighed = [0] * len(shifts)
+        shift_charged = [0] * len(shifts)
+
+        if records is not None and not records.empty:
+            for _, record in records.iterrows():
+                s_idx = _shift_index_for_record(record, shifts)
+                if s_idx >= len(shifts):
+                    s_idx = len(shifts) - 1
+
+                is_weighed = bool(record.get("is_weighed")) or (pd.to_numeric(record.get("total_gvw_kg", 0), errors="coerce") or 0) > 0
+                is_charged = (
+                    bool(record.get("is_gvw_axle_charge"))
+                    or bool(record.get("is_dimension_charge"))
+                    or str(record.get("remarks", "")).strip().upper() == "CHARGED"
+                )
+                if is_weighed:
+                    shift_weighed[s_idx] += 1
+                if is_charged:
+                    shift_charged[s_idx] += 1
+        else:
+            summary = session.sections.get("mobile_report", {}).get("summary", {})
+            total_w = int(summary.get("total_trucks_weighed", 0) or 0)
+            total_c = int(summary.get("charged_trucks", 0) or 0)
+            if len(shifts) == 1 or (len(shift_teams) >= 2 and shift_teams[0] == shift_teams[1]):
+                shift_weighed[0] = total_w
+                shift_charged[0] = total_c
+            else:
+                hourly = summary.get("hourly_counts", {})
+                cutoff = _shift_cutoff_hour(shifts)
+                w_s1 = sum(int(hourly.get(h, 0) or 0) for h in HOURS[:cutoff])
+                w_s2 = total_w - w_s1
+                shift_weighed[0] = max(w_s1, 0)
+                if len(shift_weighed) > 1:
+                    shift_weighed[1] = max(w_s2, 0)
+                shift_charged[0] = total_c
+
+        dms_in_session = set()
+        for idx, team in enumerate(shift_teams):
+            if not team:
+                continue
+            dm_name = team["dm"]
+            row = stats.setdefault(
+                dm_name,
+                {
+                    "name": dm_name,
+                    "surname": dm_name.split()[-1] if dm_name else "",
+                    "team": team["team"],
+                    "drivers": [],
+                    "weighed": 0,
+                    "charged": 0,
+                    "monthCharged": 0,
+                    "reports": 0,
+                },
+            )
+            for driver in team["drivers"]:
+                if driver not in row["drivers"]:
+                    row["drivers"].append(driver)
+            row["team"] = " / ".join([dm_name, *row["drivers"]])
+            row["weighed"] += shift_weighed[idx] if idx < len(shift_weighed) else 0
+            row["charged"] += shift_charged[idx] if idx < len(shift_charged) else 0
+            if is_current_month:
+                row["monthCharged"] += shift_charged[idx] if idx < len(shift_charged) else 0
+            dms_in_session.add(dm_name)
+
+        for dm_name in dms_in_session:
+            stats[dm_name]["reports"] += 1
 
     for row in stats.values():
         row["chargeRate"] = round((row["charged"] / row["weighed"] * 100), 1) if row["weighed"] else 0

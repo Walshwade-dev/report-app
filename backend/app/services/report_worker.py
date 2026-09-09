@@ -14,7 +14,7 @@ _process_pool = ProcessPoolExecutor(max_workers=2)
 def _build_final_report_in_process(report_id: str) -> tuple[bytes | None, str | None]:
     logger.info("Starting background build for report session %s in separate process", report_id)
     try:
-        session = report_session_store.get(report_id)
+        session = report_session_store.get(report_id, force_reload=True)
         if not session:
             logger.error("Session %s not found", report_id)
             return None, f"Session {report_id} not found"
@@ -42,6 +42,8 @@ def _build_final_report_in_process(report_id: str) -> tuple[bytes | None, str | 
     except Exception as exc:
         logger.exception("Failed background build for report session %s in separate process", report_id)
         return None, str(exc)
+    finally:
+        report_session_store._sessions.pop(report_id, None)
 
 
 def run_build_final_report(report_id: str):
