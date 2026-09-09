@@ -69,7 +69,7 @@ def test_sms_summary_mobile():
     assert "JUJA W/B DAILY MOBILE REPORT_TEAM TWO" in summary
     assert "Date:23.06.2026" in summary
     assert "Route:-JUJA-KIMBO-RUIRU" in summary
-    assert "scale (S)=2" in summary
+    assert "Weigh Scale (S)=2" in summary
     assert "Total Weighed(X)=2" in summary
     assert "Total overloaded (Y)=1" in summary
     assert "Warned (A)=0" in summary

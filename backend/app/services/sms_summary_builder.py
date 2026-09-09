@@ -293,7 +293,7 @@ def build_mobile_sms_summary(session: ReportSession) -> str:
         f"{station_name} DAILY MOBILE REPORT_{team_name}\n"
         f"Date:{date_formatted}\n"
         f"Route:-{route}\n"
-        f"scale (S)={format_num(S)}\n"
+        f"Weigh Scale (S)={format_num(S)}\n"
         f"Total Weighed(X)={format_num(X)}\n"
         f"Total traffic (T)={format_num(T)}\n"
         f"Total overloaded (Y)={format_num(Y)}\n"

@@ -29,6 +29,7 @@ from app.services.mobile_excel_report_builder import (
     build_mobile_excel_report,
     _manual_shifts,
     _shift_cutoff_hour,
+    _manual_value,
 )
 from app.services.mobile_report_processor import (
     mobile_report_response,
@@ -744,8 +745,17 @@ def add_static_kpis(target: dict, session: ReportSession) -> None:
     z = daily_hour_total_column(session, "Z") or 0
     r = daily_hour_total_column(session, "R") or 0
 
+    tc = session.manual_inputs.get("traffic_census") or session.sections.get("traffic_census", {}).get("values") or {}
+    psv_buses = 0
+    if isinstance(tc, dict):
+        try:
+            psv_buses = int(tc.get("buses_gte_3500kg", 0) or 0)
+        except Exception:
+            psv_buses = 0
+
     target["weighed"] += daily_hour_total_column(session, "X") or 0
     target["overloads"] += max(y - g, 0)
+    target["psvOverloads"] += psv_buses
     target["minGross"] += g
     target["charged"] += z
     target["redistributed"] += r
@@ -1039,21 +1049,49 @@ async def get_analytics_details():
 
 @router.get("/report-sessions/analytics/dms-performance")
 async def get_dms_performance(date: str | None = None):
-    if not date:
-        date = datetime.now().strftime("%Y-%m-%d")
-        
+    requested_date = date or datetime.now().strftime("%Y-%m-%d")
     try:
-        filter_date = datetime.strptime(date, "%Y-%m-%d")
+        filter_date = datetime.strptime(requested_date, "%Y-%m-%d")
     except Exception:
         filter_date = datetime.now()
+        requested_date = filter_date.strftime("%Y-%m-%d")
+
+    all_ready_mobile: list[tuple[ReportSession, float]] = []
+    for session, modified_at in available_report_sessions():
+        try:
+            if session and session.sections.get("mobile_report", {}).get("status") == "ready":
+                all_ready_mobile.append((session, modified_at))
+        except Exception:
+            pass
+
+    available_mobile_dates = sorted(
+        {s.report_date for s, _ in all_ready_mobile if s.report_date},
+        reverse=True,
+    )
+
+    # Check if there are any mobile sessions matching the requested month and on/before requested_date
+    has_month_sessions = any(
+        s.report_date
+        and datetime.strptime(s.report_date, "%Y-%m-%d").year == filter_date.year
+        and datetime.strptime(s.report_date, "%Y-%m-%d").month == filter_date.month
+        and datetime.strptime(s.report_date, "%Y-%m-%d") <= filter_date
+        for s, _ in all_ready_mobile
+        if s.report_date
+    )
+
+    effective_date = requested_date
+    if not has_month_sessions and available_mobile_dates:
+        # Fall back to the most recent month/date that actually has ready mobile report data
+        effective_date = available_mobile_dates[0]
+        try:
+            filter_date = datetime.strptime(effective_date, "%Y-%m-%d")
+        except Exception:
+            pass
 
     latest_mobile_sessions: dict[tuple[str, str, str], tuple[ReportSession, float]] = {}
 
-    for session, modified_at in available_report_sessions():
+    for session, modified_at in all_ready_mobile:
         try:
-            if not session or session.sections.get("mobile_report", {}).get("status") != "ready":
-                continue
-
             try:
                 session_date = datetime.strptime(session.report_date, "%Y-%m-%d")
             except Exception:
@@ -1082,7 +1120,34 @@ async def get_dms_performance(date: str | None = None):
     for session, _ in latest_mobile_sessions.values():
         shifts = _manual_shifts(session)
         default_team = danka_staff_team(session)
-        shift_teams = [parse_danka_team(shift.get("danka_staff")) or default_team for shift in shifts]
+        if not default_team and session.prepared_by:
+            default_team = {
+                "dm": session.prepared_by.strip().upper(),
+                "drivers": [],
+                "team": session.prepared_by.strip().upper(),
+            }
+
+        shift_teams = []
+        for s_idx, shift in enumerate(shifts):
+            staff_val = shift.get("danka_staff")
+            if not staff_val and s_idx == 1:
+                staff_val = _manual_value(
+                    session,
+                    "shift_two_danka_staff",
+                    "shiftTwoDmEntry",
+                    "shift_two_staff",
+                    "shiftTwoStaff",
+                )
+            if not staff_val and s_idx == 0:
+                staff_val = _manual_value(
+                    session,
+                    "danka_staff",
+                    "dmEntry",
+                    "computer_operator",
+                    "computer_operators",
+                )
+            team = parse_danka_team(staff_val) or default_team
+            shift_teams.append(team)
 
         if not any(shift_teams):
             continue
@@ -1104,6 +1169,20 @@ async def get_dms_performance(date: str | None = None):
                     records = pd.read_pickle(processed_path)
                 except Exception:
                     records = None
+            if records is None or getattr(records, "empty", True):
+                raw_path = report_session_store._processed_section_path(session.report_id, "mobile_report_raw")
+                if raw_path.exists():
+                    try:
+                        raw_df = pd.read_pickle(raw_path)
+                        mobile_inputs = session.manual_inputs.get("mobile_report") or {}
+                        records = normalize_mobile_report(
+                            raw_df,
+                            reweigh_tickets=mobile_inputs.get("reweigh_tickets") or [],
+                            dimension_charges=mobile_inputs.get("dimension_charges") or [],
+                            station=session.weighbridge_name or session.station,
+                        )
+                    except Exception:
+                        records = None
 
         shift_weighed = [0] * len(shifts)
         shift_charged = [0] * len(shifts)
@@ -1139,7 +1218,22 @@ async def get_dms_performance(date: str | None = None):
                 shift_weighed[0] = max(w_s1, 0)
                 if len(shift_weighed) > 1:
                     shift_weighed[1] = max(w_s2, 0)
-                shift_charged[0] = total_c
+
+                mobile_inputs = session.manual_inputs.get("mobile_report") or {}
+                dim_charges = mobile_inputs.get("dimension_charges") or []
+                for dc in dim_charges:
+                    dc_idx = _shift_index_for_record(dc, shifts)
+                    if dc_idx < len(shift_charged):
+                        shift_charged[dc_idx] += 1
+                
+                remaining_c = max(total_c - sum(shift_charged), 0)
+                if remaining_c > 0:
+                    if total_w > 0 and len(shift_charged) > 1:
+                        c_s1 = int(round(remaining_c * (shift_weighed[0] / total_w)))
+                        shift_charged[0] += c_s1
+                        shift_charged[1] += (remaining_c - c_s1)
+                    else:
+                        shift_charged[0] += remaining_c
 
         dms_in_session = set()
         for idx, team in enumerate(shift_teams):
@@ -1186,6 +1280,7 @@ async def get_dms_performance(date: str | None = None):
         "totalCharged": sum(row["charged"] for row in rows),
         "totalWeighed": sum(row["weighed"] for row in rows),
         "reports": report_count,
+        "selectedDate": effective_date,
     }
 
 
