@@ -1,3 +1,4 @@
+import re
 from docx import Document
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -177,7 +178,11 @@ def add_table(doc: Document, columns, rows, ratios):
 
         for index, column in enumerate(columns):
             cell = row.cells[index]
-            cell.text = source_row.get(column, "")
+            val = source_row.get(column, "")
+            val_str = str(val).strip() if val is not None else ""
+            if "date" in column.lower() or re.match(r"^\d{1,4}[./-]\d{1,2}[./-]\d{2,4}$", val_str):
+                val_str = re.sub(r"[.-]", "/", val_str)
+            cell.text = val_str.upper()
             set_cell_width(cell, widths[index])
             style_cell(cell, font_size=10)
 

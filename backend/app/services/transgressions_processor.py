@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 
@@ -67,17 +68,44 @@ ACTION_REPORT_ALIASES = {
 
 
 def _normalize_key(key: str) -> str:
-    return key.strip().lower().replace(" ", "_").replace("-", "_").replace(".", "")
+    return re.sub(r"[^a-z0-9]", "", key.lower())
 
 
-def _stringify_cell(value: Any) -> str:
+def _format_date_field(val_str: str) -> str:
+    """Format date to DD/MM/YYYY using '/' as separator."""
+    # Handle YYYY.MM.DD or YYYY-MM-DD or YYYY/MM/DD
+    m_iso = re.match(r"^(\d{4})[./-](\d{2})[./-](\d{2})$", val_str)
+    if m_iso:
+        return f"{m_iso.group(3)}/{m_iso.group(2)}/{m_iso.group(1)}"
+    # Handle DD.MM.YYYY or DD-MM-YYYY or DD/MM/YYYY
+    m_std = re.match(r"^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$", val_str)
+    if m_std:
+        day = m_std.group(1).zfill(2)
+        month = m_std.group(2).zfill(2)
+        year = m_std.group(3)
+        return f"{day}/{month}/{year}"
+    # Replace dots and hyphens in date strings with slashes
+    return val_str.replace(".", "/").replace("-", "/")
+
+
+def _stringify_cell(value: Any, column: str = "") -> str:
     if value is None:
         return ""
 
     if isinstance(value, bool):
-        return "YES" if value else "NO"
+        val_str = "YES" if value else "NO"
+    else:
+        val_str = str(value).strip()
 
-    return str(value).strip()
+    if not val_str:
+        return ""
+
+    # If column is a date field or value looks like a date, ensure '/' separation
+    if "date" in column.lower() or re.match(r"^\d{1,4}[./-]\d{1,2}[./-]\d{2,4}$", val_str):
+        val_str = _format_date_field(val_str)
+
+    # Every entry on the docx for the transgression must be uppercased
+    return val_str.upper()
 
 
 def _normalize_row(
@@ -101,7 +129,7 @@ def _normalize_row(
                 value = normalized_source[normalized_candidate]
                 break
 
-        output[column] = _stringify_cell(value)
+        output[column] = _stringify_cell(value, column=column)
 
     return output
 

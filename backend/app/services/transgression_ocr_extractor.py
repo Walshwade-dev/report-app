@@ -188,22 +188,22 @@ def parse_transgression_text(text: str, fallback_station: str | None = None) -> 
         raw_date = date_context_match.group(1)
         parts = re.split(r"[./-]", raw_date)
         if len(parts) == 3:
-            if len(parts[0]) == 4:  # YYYY.MM.DD
-                date_str = f"{parts[2]}.{parts[1]}.{parts[0]}"
+            if len(parts[0]) == 4:  # YYYY/MM/DD
+                date_str = f"{parts[2]}/{parts[1]}/{parts[0]}"
             else:
-                date_str = f"{parts[0]}.{parts[1]}.{parts[2]}"
+                date_str = f"{parts[0]}/{parts[1]}/{parts[2]}"
         else:
-            date_str = raw_date.replace("-", ".").replace("/", ".")
+            date_str = raw_date.replace("-", "/").replace(".", "/")
     else:
-        # Match standard DD.MM.YYYY or YYYY.MM.DD, avoiding old template revision dates (e.g. 2021)
+        # Match standard DD/MM/YYYY or YYYY/MM/DD, avoiding old template revision dates (e.g. 2021)
         for candidate_date in re.findall(r"\b(\d{2,4}[./-]\d{2}[./-]\d{2,4})\b", text):
             if "2021" not in candidate_date:
                 parts = re.split(r"[./-]", candidate_date)
                 if len(parts) == 3:
                     if len(parts[0]) == 4:
-                        date_str = f"{parts[2]}.{parts[1]}.{parts[0]}"
+                        date_str = f"{parts[2]}/{parts[1]}/{parts[0]}"
                     else:
-                        date_str = f"{parts[0]}.{parts[1]}.{parts[2]}"
+                        date_str = f"{parts[0]}/{parts[1]}/{parts[2]}"
                     break
 
     # 5. Incident Time

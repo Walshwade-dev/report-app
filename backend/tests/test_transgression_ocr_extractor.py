@@ -43,7 +43,7 @@ class TestTransgressionOcrExtractor(unittest.TestCase):
 
         # Check Daily Transgressions fields
         self.assertEqual(daily["regNo"], "KDG 096Q")
-        self.assertEqual(daily["date"], "06.09.2026")
+        self.assertEqual(daily["date"], "06/09/2026")
         self.assertEqual(daily["time"], "1101hrs")
         self.assertEqual(daily["axleConfig"], "2A")
         self.assertEqual(daily["transporter"], "JAMES GATHENYA")
@@ -55,7 +55,7 @@ class TestTransgressionOcrExtractor(unittest.TestCase):
 
         # Check Action Report fields
         self.assertEqual(action["truckNo"], "KDG 096Q")
-        self.assertEqual(action["date"], "06.09.2026")
+        self.assertEqual(action["date"], "06/09/2026")
         self.assertEqual(action["timeReceived"], "1101hrs")
         self.assertEqual(action["taggedInSystem"], "YES")
         self.assertEqual(action["action1"], "Tagged in System (TAG ID: TAGJURU202693218384)")
@@ -88,7 +88,7 @@ class TestTransgressionOcrExtractor(unittest.TestCase):
         result = extract_transgression_from_file_bytes(content, filename="transgression_nairobi.pdf")
         self.assertTrue(result["success"])
         self.assertEqual(result["extracted"]["daily_transgression"]["regNo"], "KDG 096Q")
-        self.assertEqual(result["extracted"]["daily_transgression"]["date"], "06.09.2026")
+        self.assertEqual(result["extracted"]["daily_transgression"]["date"], "06/09/2026")
         self.assertEqual(result["extracted"]["action_report"]["taggedInSystem"], "YES")
 
     def test_api_endpoint(self):

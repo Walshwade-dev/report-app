@@ -2438,3 +2438,32 @@ The `/api/report-sessions/analytics/dashboard` endpoint and frontend `MobileSumm
   - Re-uploading a document for an already populated truck is blocked to prevent duplicate row creation.
   - Alerts the operator with: `Transgression details for "{vehicle reg}" have already been populated and can not be repopulated for the same truck.`
   - Extraction success notifications auto-dismiss in under a second (850ms) as a brief heads-up banner.
+
+### 22. Unified Batch File Intake & Smart Mapping
+
+- **Unified Batch Ingest Component**:
+  - Introduced `BatchFileIngest.tsx` in `report-compiler/frontend` above `UploadChecklist`.
+  - Multi-file dropzone accepting `.csv`, `.xlsx`, `.xls`, `.pdf`, `.png`, `.jpg`, `.jpeg`, `.tiff`, and `.webp` simultaneously.
+  - Implements multi-factor heuristic classifier (`lib/fileClassifier.ts`):
+    - Differentiates spreadsheet registers from scanned tickets.
+    - Matches filename keywords for `daily_hour`, `wideload`, `impounded_prohibited`, `impounded_overloaded`, and `transgression`.
+    - Implements client-side CSV column sniffing to accurately detect categories even with ambiguous filenames.
+    - Prepares scaffolding for future Traffic Census document OCR.
+  - **Interactive Staging & Verification**:
+    - Users review auto-detected categories with confidence badges.
+    - Category override dropdown allows manually reassigning or ignoring any file before ingestion.
+  - **Batch Execution**:
+    - Uploads data files sequentially in dependency order (`daily_hour` -> `wideload` -> `impounded_prohibited` -> `impounded_overloaded`).
+    - Executes transgression OCR extraction with duplicate truck checks.
+    - Provides a direct **"Build Report Now"** trigger button as soon as all required data sections are ready and manual inputs are populated.
+  - **New Report / Reset Clearing**:
+    - Clicking **"New Report / Reset"** triggers a complete reset of the batch intake container (clearing staged files, file inputs, feedback banners, and restoring empty dropzone state).
+
+### 23. Transgression DOCX Table Uppercase & Date Formatting
+
+- **Uppercase Table Entries**:
+  - In `app/services/transgressions_processor.py` and `app/services/transgressions_generator.py`, all cell values in both `DAILY TRANSGRESSIONS REPORT` and `TRANSGRESSIONS ACTION REPORT` tables on the generated Word report (`.docx`) are strictly formatted in uppercase (e.g. `CHASED AND RETURNED`, `SGT ANGELO MBOGORI`, `TAGGED IN SYSTEM...`, `1101HRS`, `YES`/`NO`).
+- **Date Separator Standardization**:
+  - All transgression dates across both DOCX tables and OCR extraction outputs (`app/services/transgression_ocr_extractor.py`) are formatted using `/` as the separator (e.g., `06/09/2026` instead of `06.09.2026`).
+- **Flexible CamelCase Key Normalization**:
+  - `_normalize_key` in `transgressions_processor.py` strips all non-alphanumeric characters, seamlessly mapping frontend camelCase fields (`regNo`, `axleConfig`, `censusClerk`, `policeInCharge`, `actionTaken`, `truckNo`, `timeReceived`, `sendingWbStation`, `attachEvidence`, etc.) to Word table columns.
