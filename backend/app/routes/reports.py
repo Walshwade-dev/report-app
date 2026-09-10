@@ -736,6 +736,13 @@ def empty_static_kpis() -> dict:
         "redistributed": 0,
         "chargedRedist": "0 / 0",
         "reportsGenerated": 0,
+        "axleConfigs": {},
+        "psvBreakdown": {
+            "charged": 0,
+            "withinAllowed": 0,
+            "redistributed": 0,
+            "specialRelease": 0,
+        },
     }
 
 
@@ -745,22 +752,113 @@ def add_static_kpis(target: dict, session: ReportSession) -> None:
     z = daily_hour_total_column(session, "Z") or 0
     r = daily_hour_total_column(session, "R") or 0
 
-    tc = session.manual_inputs.get("traffic_census") or session.sections.get("traffic_census", {}).get("values") or {}
-    psv_buses = 0
-    if isinstance(tc, dict):
+    # Extract overloaded dataframe or fallback to section metadata
+    overloaded_df = session.dataframes.get("overloaded")
+    if overloaded_df is None:
         try:
-            psv_buses = int(tc.get("buses_gte_3500kg", 0) or 0)
+            pkl_path = report_session_store._processed_section_path(session.report_id, "overloaded")
+            if pkl_path.exists():
+                overloaded_df = pd.read_pickle(pkl_path)
+                session.dataframes["overloaded"] = overloaded_df
         except Exception:
-            psv_buses = 0
+            pass
+
+    psv_count = 0
+    psv_breakdown = {
+        "charged": 0,
+        "withinAllowed": 0,
+        "redistributed": 0,
+        "specialRelease": 0,
+    }
+    session_axle_counts: dict[str, int] = {}
+
+    if isinstance(overloaded_df, pd.DataFrame) and not overloaded_df.empty:
+        # 1. PSV coaches: Use Cargo column matching 'PSV' or 'Passengers' words
+        if "Cargo" in overloaded_df.columns:
+            cargo_series = overloaded_df["Cargo"].fillna("").astype(str)
+            psv_mask = cargo_series.str.contains(r"(?i)\b(?:psv|passengers?)\b", regex=True)
+            psv_rows = overloaded_df[psv_mask]
+            psv_count = len(psv_rows)
+
+            # Rely on LastState if present for PSV state, else fallback to state.
+            # PSV vehicles are given an additional allowance of 2000KG above allocated GVW.
+            # If GVW overload sits within 2000kg (<= 2000kg), they are marked as within allowed GVW.
+            for _, row in psv_rows.iterrows():
+                last_st = str(row.get("LastState", "") or "").strip()
+                st = str(row.get("state", "") or "").strip()
+                eff = last_st if last_st and last_st.lower() not in ("nan", "none", "null") else st
+                eff_lower = eff.lower()
+
+                last_gvw = row.get("LastGVWOverload")
+                gvw = row.get("GVWOverload")
+                val = last_gvw if pd.notna(last_gvw) and str(last_gvw).strip() != "" else gvw
+                try:
+                    gvw_ov = float(str(val).replace(",", "").strip())
+                except Exception:
+                    gvw_ov = 0.0
+
+                if "charg" in eff_lower:
+                    if gvw_ov <= 2000.0:
+                        psv_breakdown["withinAllowed"] += 1
+                    else:
+                        psv_breakdown["charged"] += 1
+                elif "redistribut" in eff_lower:
+                    psv_breakdown["redistributed"] += 1
+                elif "releas" in eff_lower:
+                    psv_breakdown["specialRelease"] += 1
+
+        # 2. Axle configurations: Count vehicles by AxleConfig
+        if "AxleConfig" in overloaded_df.columns:
+            axle_series = overloaded_df["AxleConfig"].dropna().astype(str).str.strip()
+            for cfg, cnt in axle_series.value_counts().items():
+                cfg_clean = str(cfg).strip()
+                if cfg_clean and cfg_clean.lower() not in ("nan", "none", "null"):
+                    session_axle_counts[cfg_clean] = int(cnt)
+    else:
+        # Fallback to session section extra metadata if available
+        ov_sec = session.sections.get("overloaded", {})
+        psv_count = int(ov_sec.get("psv_count", 0) or 0)
+        sec_breakdown = ov_sec.get("psv_breakdown")
+        if isinstance(sec_breakdown, dict):
+            for k in ("charged", "withinAllowed", "redistributed", "specialRelease"):
+                psv_breakdown[k] = int(sec_breakdown.get(k, 0) or 0)
+        sec_axles = ov_sec.get("axle_configs")
+        if isinstance(sec_axles, dict):
+            for cfg, cnt in sec_axles.items():
+                session_axle_counts[str(cfg)] = int(cnt)
+
+        # If still 0 and no overloaded file, fallback to traffic census if available
+        if psv_count == 0 and not ov_sec.get("filename"):
+            tc = session.manual_inputs.get("traffic_census") or session.sections.get("traffic_census", {}).get("values") or {}
+            if isinstance(tc, dict):
+                try:
+                    psv_count = int(tc.get("buses_gte_3500kg", 0) or 0)
+                except Exception:
+                    psv_count = 0
 
     target["weighed"] += daily_hour_total_column(session, "X") or 0
     target["overloads"] += max(y - g, 0)
-    target["psvOverloads"] += psv_buses
+    target["psvOverloads"] += psv_count
     target["minGross"] += g
     target["charged"] += z
     target["redistributed"] += r
     target["reportsGenerated"] += 1
     target["chargedRedist"] = f"{target['charged']} / {target['redistributed']}"
+
+    if "psvBreakdown" not in target:
+        target["psvBreakdown"] = {
+            "charged": 0,
+            "withinAllowed": 0,
+            "redistributed": 0,
+            "specialRelease": 0,
+        }
+    for k in ("charged", "withinAllowed", "redistributed", "specialRelease"):
+        target["psvBreakdown"][k] = target["psvBreakdown"].get(k, 0) + psv_breakdown.get(k, 0)
+
+    if "axleConfigs" not in target:
+        target["axleConfigs"] = {}
+    for cfg, count in session_axle_counts.items():
+        target["axleConfigs"][cfg] = target["axleConfigs"].get(cfg, 0) + count
 
 
 @router.get("/report-sessions/analytics/dashboard")
@@ -932,6 +1030,72 @@ async def get_analytics_dashboard(
         else {}
     )
 
+    shift_a_stats = {"weighed": 0, "warned": 0, "legal": 0, "charged": 0}
+    shift_b_stats = {"weighed": 0, "warned": 0, "legal": 0, "charged": 0}
+
+    if selected_session is not None:
+        shifts = _manual_shifts(selected_session)
+        df_mobile = selected_session.dataframes.get("mobile_report")
+        if df_mobile is None:
+            try:
+                pkl_path = report_session_store._processed_section_path(selected_session.report_id, "mobile_report")
+                if pkl_path.exists():
+                    df_mobile = pd.read_pickle(pkl_path)
+                    selected_session.dataframes["mobile_report"] = df_mobile
+            except Exception:
+                pass
+
+        if isinstance(df_mobile, pd.DataFrame) and not df_mobile.empty:
+            for _, r in df_mobile.iterrows():
+                s_idx = _shift_index_for_record(r, shifts)
+                target_shift = shift_a_stats if s_idx == 0 else shift_b_stats
+                if r.get("is_weighed", True):
+                    target_shift["weighed"] += 1
+                rem = str(r.get("remarks", "")).strip().upper()
+                if "CHARG" in rem:
+                    target_shift["charged"] += 1
+                elif "WARN" in rem:
+                    target_shift["warned"] += 1
+                elif "LEGAL" in rem:
+                    target_shift["legal"] += 1
+
+            # Dimension charges attribution if any
+            raw_dim_charges = selected_session.manual_inputs.get("mobile_report", {}).get("dimension_charges", [])
+            for dc in raw_dim_charges:
+                if isinstance(dc, dict):
+                    dc_idx = _shift_index_for_record(dc, shifts)
+                    target_shift = shift_a_stats if dc_idx == 0 else shift_b_stats
+                    target_shift["charged"] += 1
+                    target_shift["weighed"] += 1
+        else:
+            total_weighed = mobile_summary.get("total_trucks_weighed", 0)
+            total_warned = mobile_summary.get("warned_trucks", 0)
+            total_charged = mobile_summary.get("charged_trucks", 0)
+            total_legal = max(total_weighed - total_warned - total_charged, 0)
+            shift_a_stats = {
+                "weighed": total_weighed,
+                "warned": total_warned,
+                "legal": total_legal,
+                "charged": total_charged,
+            }
+
+    total_mobile_weighed = shift_a_stats["weighed"] + shift_b_stats["weighed"]
+    total_mobile_warned = shift_a_stats["warned"] + shift_b_stats["warned"]
+    total_mobile_legal = shift_a_stats["legal"] + shift_b_stats["legal"]
+    total_mobile_charged = shift_a_stats["charged"] + shift_b_stats["charged"]
+
+    if total_mobile_weighed == 0 and mobile_summary.get("total_trucks_weighed", 0) > 0:
+        total_mobile_weighed = mobile_summary.get("total_trucks_weighed", 0)
+        total_mobile_warned = mobile_summary.get("warned_trucks", 0)
+        total_mobile_charged = mobile_summary.get("charged_trucks", 0)
+        total_mobile_legal = max(total_mobile_weighed - total_mobile_warned - total_mobile_charged, 0)
+        shift_a_stats = {
+            "weighed": total_mobile_weighed,
+            "warned": total_mobile_warned,
+            "legal": total_mobile_legal,
+            "charged": total_mobile_charged,
+        }
+
     return {
         "static": {
             "weighed": static_by_bound["total"]["weighed"],
@@ -940,14 +1104,33 @@ async def get_analytics_dashboard(
             "minGross": static_by_bound["total"]["minGross"],
             "chargedRedist": static_by_bound["total"]["chargedRedist"],
             "reportsGenerated": static_by_bound["total"]["reportsGenerated"],
+            "axleConfigs": static_by_bound["total"].get("axleConfigs", {}),
+            "psvBreakdown": static_by_bound["total"].get("psvBreakdown", {}),
             "dates": static_dates,
             "selectedDate": selected_static_date,
             "byBound": static_by_bound,
         },
         "mobile": {
-            "weighed": mobile_summary.get("total_trucks_weighed", 0),
-            "warned": mobile_summary.get("warned_trucks", 0),
-            "charged": mobile_summary.get("charged_trucks", 0),
+            "weighed": total_mobile_weighed,
+            "warned": total_mobile_warned,
+            "legal": total_mobile_legal,
+            "charged": total_mobile_charged,
+            "shifts": {
+                "shiftA": {
+                    "label": "Shift A (Day Shift)",
+                    **shift_a_stats,
+                },
+                "shiftB": {
+                    "label": "Shift B (Night Shift)",
+                    **shift_b_stats,
+                },
+                "total": {
+                    "weighed": total_mobile_weighed,
+                    "warned": total_mobile_warned,
+                    "legal": total_mobile_legal,
+                    "charged": total_mobile_charged,
+                },
+            },
             "reports": mobile_reports,
             "selected": selected_mobile,
         },
@@ -1604,12 +1787,62 @@ async def upload_overloaded_file(
         filename, content, raw_df = await read_upload_dataframe(file)
         report_session_store.save_upload(report_id, "overloaded", filename, content)
         valid_permit_count = count_valid_permit_vehicles(raw_df)
+
+        psv_count = 0
+        psv_breakdown = {
+            "charged": 0,
+            "withinAllowed": 0,
+            "redistributed": 0,
+            "specialRelease": 0,
+        }
+        axle_configs = {}
+        if "Cargo" in raw_df.columns:
+            cargo_s = raw_df["Cargo"].fillna("").astype(str)
+            psv_mask = cargo_s.str.contains(r"(?i)\b(?:psv|passengers?)\b", regex=True)
+            psv_df = raw_df[psv_mask]
+            psv_count = len(psv_df)
+            for _, r in psv_df.iterrows():
+                last_st = str(r.get("LastState", "") or "").strip()
+                st = str(r.get("state", "") or "").strip()
+                eff = last_st if last_st and last_st.lower() not in ("nan", "none", "null") else st
+                eff_l = eff.lower()
+
+                last_gvw = r.get("LastGVWOverload")
+                gvw = r.get("GVWOverload")
+                val = last_gvw if pd.notna(last_gvw) and str(last_gvw).strip() != "" else gvw
+                try:
+                    gvw_ov = float(str(val).replace(",", "").strip())
+                except Exception:
+                    gvw_ov = 0.0
+
+                if "charg" in eff_l:
+                    if gvw_ov <= 2000.0:
+                        psv_breakdown["withinAllowed"] += 1
+                    else:
+                        psv_breakdown["charged"] += 1
+                elif "redistribut" in eff_l:
+                    psv_breakdown["redistributed"] += 1
+                elif "releas" in eff_l:
+                    psv_breakdown["specialRelease"] += 1
+
+        if "AxleConfig" in raw_df.columns:
+            axle_s = raw_df["AxleConfig"].dropna().astype(str).str.strip()
+            for cfg, cnt in axle_s.value_counts().items():
+                cfg_c = str(cfg).strip()
+                if cfg_c and cfg_c.lower() not in ("nan", "none", "null"):
+                    axle_configs[cfg_c] = int(cnt)
+
         updated = report_session_store.set_section_ready(
             report_id,
             "overloaded",
             raw_df,
             filename=filename,
-            extra={"valid_permit_count": valid_permit_count},
+            extra={
+                "valid_permit_count": valid_permit_count,
+                "psv_count": psv_count,
+                "psv_breakdown": psv_breakdown,
+                "axle_configs": axle_configs,
+            },
         )
         return serialize_session(updated)
 

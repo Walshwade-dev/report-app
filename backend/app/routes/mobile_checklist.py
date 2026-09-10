@@ -21,7 +21,7 @@ CHECKLIST_ENTRIES: List[Dict[str, Any]] = [
         "mobile_scale_gvw": 12440,
         "multideck_scale_gvw": 11960,
         "variance_gvw": 480,
-        "variance_comment": "ALERT: Scale weight variance of 480kg exceeds 200kg threshold. Recalibration and technical inspection recommended.",
+        "variance_comment": "Variance of 480kg is within acceptable calibration tolerance (<= 2000kg).",
         "technical_checks": {
           "plate_screws_tight": True,
           "surface_clean": True,
@@ -108,10 +108,10 @@ def create_checklist_entry(payload: Dict[str, Any] = Body(...)):
     multideck_gvw = float(payload.get("multideck_scale_gvw", 0))
     variance = abs(mobile_gvw - multideck_gvw)
     
-    if variance <= 200:
-        variance_comment = f"Variance of {variance:.0f}kg is within acceptable calibration tolerance (<= 200kg)."
+    if variance <= 2000:
+        variance_comment = f"Variance of {variance:.0f}kg is within acceptable calibration tolerance (<= 2000kg)."
     else:
-        variance_comment = f"ALERT: Scale weight variance of {variance:.0f}kg exceeds 200kg threshold. Recalibration and technical inspection recommended."
+        variance_comment = f"ALERT: Scale weight variance of {variance:.0f}kg exceeds 2000kg threshold. Recalibration and technical inspection recommended."
 
     new_entry = {
         "id": f"chk-{uuid.uuid4().hex[:8]}",

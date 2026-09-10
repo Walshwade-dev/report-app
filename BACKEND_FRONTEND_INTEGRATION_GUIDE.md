@@ -120,6 +120,12 @@ Impounded/prohibited calculation corrected to P = Z + R formula
 Approved By/Confirmed By signatory locked to Faith Njani
 Developer Ticket & Prompt Portal page implemented for logging flaws and generating instructions
 Admin console exists in the frontend for password-gated report history and delete controls
+Station-level data scoping implemented for multi-station isolation (e.g. Kanyonyo vs Juja)
+Mobile two-shift report generation and KPI credit attribution implemented for morning and evening shifts
+Mobile two-shift mileage table properly splits morning and evening distances with overall totals
+PSV concession logic gives 2000KG GVW allowance (overload <= 2000KG marked withinAllowed rather than charged)
+Mobile checklist scale test calibration tolerance updated to 2000KG threshold
+Mobile shift statistics (Shift A, Shift B, Total) exposed in analytics dashboard for dual-shift KPI presentation
 ```
 
 ### In Progress
