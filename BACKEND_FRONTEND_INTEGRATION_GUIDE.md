@@ -2384,3 +2384,14 @@ This correction applies to all modules (static, mobile, Excel, Word, and SMS sum
 ### 17. Locked Signatory "Faith Njani"
 
 To ensure uniformity and administrative consistency, the "Approved By" or "Confirmed By" signatory field is locked to the name **"Faith Njani"** across all generated reports, templates, and UI metadata configurations. Hand-off manual inputs for `approved_by` or `confirmed_by` default to this value, and the UI disables editing of this field to enforce compliance.
+
+### 18. Mobile Report KPIs: Shift A/B Alignment with Mobile SMS KPIs
+
+In mobile weighbridge operations, Mobile 1 operates as Mobile Shift One / Team 1 (Day Shift / Shift A), and Mobile 2 operates as Mobile Shift Two / Team 2 (Night Shift / Shift B). 
+
+The `/api/report-sessions/analytics/dashboard` endpoint and frontend `MobileSummaryCards` are aligned as follows:
+- **Shift A (Day Shift)**: Directly reflects metrics (`weighed`, `warned`, `legal`, `charged`) from the station's `Mobile 1` session on that date, exactly matching the `build_mobile_sms_summary()` SMS KPI output for TEAM ONE.
+- **Shift B (Night Shift)**: Directly reflects metrics from the station's `Mobile 2` session on that date, exactly matching the `build_mobile_sms_summary()` SMS KPI output for TEAM TWO.
+- **Total**: Computed as the unified sum of `Shift A + Shift B`.
+- **UI Streamlining**: The mobile bound dropdown selector was removed from `MobileSummaryCards`, and the child container totals font size was increased to `text-sm font-extrabold` for optimal readability.
+

@@ -1,6 +1,6 @@
 import logging
 import os
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,7 +44,7 @@ STATIC_REQUIRED_UPLOADS = {
 
 
 def _as_uuid(report_id: str | PyUUID) -> PyUUID:
-    return report_id if isinstance(report_id, PyUUID) else PyUUID(str(report_id))
+    return report_id if isinstance(report_id, PyUUID) else PyUUID(report_id)
 
 
 def _utc_now() -> datetime:
@@ -93,7 +93,7 @@ def _report_title(report: Report) -> str:
         report.bound_name,
         report.report_date,
     ]
-    title = " ".join(str(part).strip() for part in parts if part)
+    title = " ".join(part.strip() for part in parts if part)
     return report.title or title or str(report.id)
 
 
@@ -112,7 +112,7 @@ class ReportRepository:
         )
 
     @contextmanager
-    def _session_scope(self) -> Iterator[Session]:
+    def _session_scope(self) -> Generator[Session, None, None]:
         if SessionLocal is None:
             raise RuntimeError("DATABASE_URL is not configured.")
 

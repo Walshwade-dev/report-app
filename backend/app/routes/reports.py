@@ -615,7 +615,37 @@ def mobile_report_manual_inputs(session: ReportSession) -> dict:
     if isinstance(extra_inputs, dict) and isinstance(extra_inputs.get("mobile_report"), dict):
         return extra_inputs["mobile_report"]
 
-    return {}
+def _mobile_session_sms_kpis(session: ReportSession | None) -> dict[str, int]:
+    if session is None:
+        return {"weighed": 0, "warned": 0, "legal": 0, "charged": 0}
+
+    summary = session.sections.get("mobile_report", {}).get("summary", {})
+    if not summary and "mobile_report" in session.dataframes:
+        df_mobile = session.dataframes["mobile_report"]
+        if isinstance(df_mobile, pd.DataFrame) and not df_mobile.empty:
+            summary = summarize_mobile_report(df_mobile)
+    elif not summary:
+        try:
+            pkl_path = report_session_store._processed_section_path(session.report_id, "mobile_report")
+            if pkl_path.exists():
+                loaded = pd.read_pickle(pkl_path)
+                if isinstance(loaded, pd.DataFrame):
+                    session.dataframes["mobile_report"] = loaded
+                    summary = summarize_mobile_report(loaded)
+        except Exception:
+            pass
+
+    weighed = int(summary.get("total_trucks_weighed", 0))
+    warned = int(summary.get("warned_trucks", 0))
+    charged = int(summary.get("charged_trucks", 0))
+    legal = max(weighed - (warned + charged), 0)
+
+    return {
+        "weighed": weighed,
+        "warned": warned,
+        "legal": legal,
+        "charged": charged,
+    }
 
 
 def parse_danka_team(staff_value: Any) -> dict | None:
@@ -674,7 +704,10 @@ def _shift_index_for_record(record: Any, shifts: list[dict[str, Any]]) -> int:
         except Exception:
             date_time = None
 
-    parsed_dt = pd.to_datetime(date_time, errors="coerce", dayfirst=True)
+    if date_time is None or pd.isna(date_time):
+        return 0
+
+    parsed_dt = pd.to_datetime(str(date_time), errors="coerce", dayfirst=True)
     if pd.isna(parsed_dt):
         return 0
 
@@ -731,8 +764,10 @@ def add_static_kpis(target: dict, session: ReportSession) -> None:
         try:
             pkl_path = report_session_store._processed_section_path(session.report_id, "overloaded")
             if pkl_path.exists():
-                overloaded_df = pd.read_pickle(pkl_path)
-                session.dataframes["overloaded"] = overloaded_df
+                loaded_overloaded = pd.read_pickle(pkl_path)
+                if isinstance(loaded_overloaded, pd.DataFrame):
+                    overloaded_df = loaded_overloaded
+                    session.dataframes["overloaded"] = overloaded_df
         except Exception:
             pass
 
@@ -905,7 +940,14 @@ async def get_analytics_dashboard(
             {
                 report_date
                 for report_date, st_key, _ in latest_static_sessions
-                if st_key.lower() == target_station_norm or (classify_station(st_key) and classify_station(st_key).lower() == target_station_norm)
+                if st_key
+                and (
+                    st_key.lower() == target_station_norm
+                    or (
+                        (cs := classify_station(st_key)) is not None
+                        and cs.lower() == target_station_norm
+                    )
+                )
             },
             reverse=True,
         )
@@ -980,94 +1022,43 @@ async def get_analytics_dashboard(
         reverse=True,
     )
 
-    selected_mobile = None
-    selected_mobile_bound = normalize_mobile_filter(mobile_bound)
-    for option in mobile_reports:
-        if mobile_date and option["date"] != mobile_date:
-            continue
-        if selected_mobile_bound and option["bound"] != selected_mobile_bound:
-            continue
-        selected_mobile = option
-        break
-
-    selected_session = None
-    if selected_mobile:
-        for report_date, _, slot, session, _ in filtered_mobile:
-            if report_date == selected_mobile["date"] and slot == selected_mobile["bound"]:
-                selected_session = session
-                break
-
-    mobile_summary = (
-        selected_session.sections["mobile_report"].get("summary", {})
-        if selected_session is not None
-        else {}
+    mobile_dates = sorted(
+        {report_date for report_date, _, _, _, _ in filtered_mobile},
+        reverse=True,
     )
 
-    shift_a_stats = {"weighed": 0, "warned": 0, "legal": 0, "charged": 0}
-    shift_b_stats = {"weighed": 0, "warned": 0, "legal": 0, "charged": 0}
+    selected_mobile_date = None
+    if mobile_date:
+        selected_mobile_date = mobile_date
+    elif selected_static_date and selected_static_date in mobile_dates:
+        selected_mobile_date = selected_static_date
+    elif mobile_dates:
+        selected_mobile_date = mobile_dates[0]
 
-    if selected_session is not None:
-        shifts = _manual_shifts(selected_session)
-        df_mobile = selected_session.dataframes.get("mobile_report")
-        if df_mobile is None:
-            try:
-                pkl_path = report_session_store._processed_section_path(selected_session.report_id, "mobile_report")
-                if pkl_path.exists():
-                    df_mobile = pd.read_pickle(pkl_path)
-                    selected_session.dataframes["mobile_report"] = df_mobile
-            except Exception:
-                pass
+    session_shift_a: ReportSession | None = None
+    session_shift_b: ReportSession | None = None
+    shift_a_modified_at = 0.0
+    shift_b_modified_at = 0.0
 
-        if isinstance(df_mobile, pd.DataFrame) and not df_mobile.empty:
-            for _, r in df_mobile.iterrows():
-                s_idx = _shift_index_for_record(r, shifts)
-                target_shift = shift_a_stats if s_idx == 0 else shift_b_stats
-                if r.get("is_weighed", True):
-                    target_shift["weighed"] += 1
-                rem = str(r.get("remarks", "")).strip().upper()
-                if "CHARG" in rem:
-                    target_shift["charged"] += 1
-                elif "WARN" in rem:
-                    target_shift["warned"] += 1
-                elif "LEGAL" in rem:
-                    target_shift["legal"] += 1
+    if selected_mobile_date:
+        for report_date, _, slot, session, modified_at in filtered_mobile:
+            if report_date == selected_mobile_date:
+                if slot == "mobile_1":
+                    if session_shift_a is None or modified_at >= shift_a_modified_at:
+                        session_shift_a = session
+                        shift_a_modified_at = modified_at
+                elif slot == "mobile_2":
+                    if session_shift_b is None or modified_at >= shift_b_modified_at:
+                        session_shift_b = session
+                        shift_b_modified_at = modified_at
 
-            # Dimension charges attribution if any
-            raw_dim_charges = selected_session.manual_inputs.get("mobile_report", {}).get("dimension_charges", [])
-            for dc in raw_dim_charges:
-                if isinstance(dc, dict):
-                    dc_idx = _shift_index_for_record(dc, shifts)
-                    target_shift = shift_a_stats if dc_idx == 0 else shift_b_stats
-                    target_shift["charged"] += 1
-                    target_shift["weighed"] += 1
-        else:
-            total_weighed = mobile_summary.get("total_trucks_weighed", 0)
-            total_warned = mobile_summary.get("warned_trucks", 0)
-            total_charged = mobile_summary.get("charged_trucks", 0)
-            total_legal = max(total_weighed - total_warned - total_charged, 0)
-            shift_a_stats = {
-                "weighed": total_weighed,
-                "warned": total_warned,
-                "legal": total_legal,
-                "charged": total_charged,
-            }
+    shift_a_stats = _mobile_session_sms_kpis(session_shift_a)
+    shift_b_stats = _mobile_session_sms_kpis(session_shift_b)
 
     total_mobile_weighed = shift_a_stats["weighed"] + shift_b_stats["weighed"]
     total_mobile_warned = shift_a_stats["warned"] + shift_b_stats["warned"]
     total_mobile_legal = shift_a_stats["legal"] + shift_b_stats["legal"]
     total_mobile_charged = shift_a_stats["charged"] + shift_b_stats["charged"]
-
-    if total_mobile_weighed == 0 and mobile_summary.get("total_trucks_weighed", 0) > 0:
-        total_mobile_weighed = mobile_summary.get("total_trucks_weighed", 0)
-        total_mobile_warned = mobile_summary.get("warned_trucks", 0)
-        total_mobile_charged = mobile_summary.get("charged_trucks", 0)
-        total_mobile_legal = max(total_mobile_weighed - total_mobile_warned - total_mobile_charged, 0)
-        shift_a_stats = {
-            "weighed": total_mobile_weighed,
-            "warned": total_mobile_warned,
-            "legal": total_mobile_legal,
-            "charged": total_mobile_charged,
-        }
 
     return {
         "static": {
@@ -1091,21 +1082,35 @@ async def get_analytics_dashboard(
             "shifts": {
                 "shiftA": {
                     "label": "Shift A (Day Shift)",
+                    "team": "Team One",
+                    "slot": "mobile_1",
+                    "exists": session_shift_a is not None,
+                    "report_id": session_shift_a.report_id if session_shift_a else None,
                     **shift_a_stats,
                 },
                 "shiftB": {
                     "label": "Shift B (Night Shift)",
+                    "team": "Team Two",
+                    "slot": "mobile_2",
+                    "exists": session_shift_b is not None,
+                    "report_id": session_shift_b.report_id if session_shift_b else None,
                     **shift_b_stats,
                 },
                 "total": {
+                    "label": "Total Mobile",
                     "weighed": total_mobile_weighed,
                     "warned": total_mobile_warned,
                     "legal": total_mobile_legal,
                     "charged": total_mobile_charged,
                 },
             },
+            "dates": mobile_dates,
+            "selectedDate": selected_mobile_date,
             "reports": mobile_reports,
-            "selected": selected_mobile,
+            "selected": {
+                "date": selected_mobile_date,
+                "label": selected_mobile_date or "No mobile session",
+            },
         },
         "stations": list(stations_data.values())
     }
@@ -1410,13 +1415,14 @@ async def get_dms_performance(date: str | None = None, station: str | None = Non
                 if raw_path.exists():
                     try:
                         raw_df = pd.read_pickle(raw_path)
-                        mobile_inputs = session.manual_inputs.get("mobile_report") or {}
-                        records = normalize_mobile_report(
-                            raw_df,
-                            reweigh_tickets=mobile_inputs.get("reweigh_tickets") or [],
-                            dimension_charges=mobile_inputs.get("dimension_charges") or [],
-                            station=session.weighbridge_name or session.station,
-                        )
+                        if isinstance(raw_df, pd.DataFrame):
+                            mobile_inputs = session.manual_inputs.get("mobile_report") or {}
+                            records = normalize_mobile_report(
+                                raw_df,
+                                reweigh_tickets=mobile_inputs.get("reweigh_tickets") or [],
+                                dimension_charges=mobile_inputs.get("dimension_charges") or [],
+                                station=session.weighbridge_name or session.station,
+                            )
                     except Exception:
                         records = None
 
@@ -1465,7 +1471,7 @@ async def get_dms_performance(date: str | None = None, station: str | None = Non
                 remaining_c = max(total_c - sum(shift_charged), 0)
                 if remaining_c > 0:
                     if total_w > 0 and len(shift_charged) > 1:
-                        c_s1 = int(round(remaining_c * (shift_weighed[0] / total_w)))
+                        c_s1 = round(remaining_c * (shift_weighed[0] / total_w))
                         shift_charged[0] += c_s1
                         shift_charged[1] += (remaining_c - c_s1)
                     else:

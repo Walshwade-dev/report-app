@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, Header, Body
 from typing import Optional, List, Dict, Any
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 import calendar
 import uuid
 
@@ -130,7 +130,7 @@ def create_checklist_entry(payload: Dict[str, Any] = Body(...)):
         "technical_checks": payload.get("technical_checks", {}),
         "vehicle_reg": payload.get("vehicle_reg", ""),
         "doc_ref": "DNK/AFRKE/LV3/WBS/018/FM03",
-        "created_at": datetime.utcnow().isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat()
     }
     
     CHECKLIST_ENTRIES.insert(0, new_entry)
@@ -144,7 +144,7 @@ def approve_checklist_entry(entry_id: str, payload: Dict[str, Any] = Body(...)):
         if entry["id"] == entry_id:
             entry["status"] = "Approved"
             entry["approved_by"] = payload.get("approved_by", "Duty Manager")
-            entry["approval_date"] = datetime.utcnow().isoformat()
+            entry["approval_date"] = datetime.now(timezone.utc).isoformat()
             return {"message": "Checklist approved and archived", "entry": entry}
             
     raise HTTPException(status_code=404, detail="Checklist entry not found")
@@ -167,7 +167,7 @@ def create_equipment_issue(payload: Dict[str, Any] = Body(...)):
         "severity": payload.get("severity", "Medium"),
         "assigned_handler": payload.get("assigned_handler", "Unassigned"),
         "resolution_notes": payload.get("resolution_notes", ""),
-        "created_at": datetime.utcnow().isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat()
     }
     EQUIPMENT_ISSUES.insert(0, new_issue)
     return {"message": "Equipment issue logged", "issue": new_issue}
@@ -205,7 +205,7 @@ def create_delivery_note(payload: Dict[str, Any] = Body(...)):
         "delivered_by": payload.get("delivered_by", ""),
         "received_by": payload.get("received_by", ""),
         "pdf_url": payload.get("pdf_url", ""),
-        "created_at": datetime.utcnow().isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat()
     }
     DELIVERY_NOTES.insert(0, new_note)
     return {"message": "Delivery note saved", "note": new_note}
