@@ -88,7 +88,7 @@ def _normalize_row(
     if not isinstance(row, dict):
         raise ValueError("Transgressions rows must be objects.")
 
-    normalized_source = {_normalize_key(str(key)): value for key, value in row.items()}
+    normalized_source = {_normalize_key(key): value for key, value in row.items()}
     output = {}
 
     for column in columns:
