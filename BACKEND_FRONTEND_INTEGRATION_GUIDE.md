@@ -2467,3 +2467,23 @@ The `/api/report-sessions/analytics/dashboard` endpoint and frontend `MobileSumm
   - All transgression dates across both DOCX tables and OCR extraction outputs (`app/services/transgression_ocr_extractor.py`) are formatted using `/` as the separator (e.g., `06/09/2026` instead of `06.09.2026`).
 - **Flexible CamelCase Key Normalization**:
   - `_normalize_key` in `transgressions_processor.py` strips all non-alphanumeric characters, seamlessly mapping frontend camelCase fields (`regNo`, `axleConfig`, `censusClerk`, `policeInCharge`, `actionTaken`, `truckNo`, `timeReceived`, `sendingWbStation`, `attachEvidence`, etc.) to Word table columns.
+
+### 24. Station Locking for Mobile Weighbridge Reports
+
+- **Problem & Root Cause**:
+  - Previously, non-admin officers logged in from stations other than Juja (e.g. Kanyonyo, Isinya, Athi River, etc.) saw the Mobile Weighbridge report (`/reports/mobile-weighbridge/new`) locked to `"Juja mobile"`.
+  - On the frontend, `inputs.station` was initialized statically to `"Juja mobile"`, and `setInputs(...)` in the draft restoration effect only executed when a draft or active report ID already existed in `localStorage`.
+  - In addition, clicking **"New Report / Reset"** unconditionally called `setInputs(createInitialMobileInputs())`, resetting the station back to `"Juja mobile"`.
+  - On the backend, `create_report_session` and `update_report_session_metadata` locked non-admin users to `current_user.station` (e.g. `"Kanyonyo"`), stripping off the `" mobile"` suffix and conflicting with the mobile reporting convention.
+- **Backend Station Resolution**:
+  - `backend/app/routes/reports.py`: `create_report_session` and `update_report_session_metadata` now identify mobile report sessions (via `station`, `weighbridge_name`, or `bound`).
+  - For non-admin users creating or updating mobile reports, their assigned station is formatted as `f"{clean_base} mobile"` (e.g. `Kanyonyo mobile`, `Isinya mobile`, `Athi River mobile`, `Suswa mobile`, `Gilgil mobile`, `Juja mobile`).
+  - For static weighbridge sessions, clean base station names (e.g. `Kanyonyo`, `Juja`) are preserved.
+- **Frontend Officer Station Locking & Reset**:
+  - `frontend/app/reports/mobile-weighbridge/new/page.tsx`:
+    - `resolveUserMobileStation(user)` checks `user.station`, `user.username`, and `user.full_name` across all station identifiers (`kanyonyo`, `isinya`, `athi`, `gilgil`, `suswa`, `juja`).
+    - `inputs` state is initialized dynamically using `resolveUserMobileStation(getLoggedInUser())` so the correct station renders immediately on initial mount without flickering.
+    - Draft and session restoration effects now enforce the officer's station lock over any stale draft or previous report session metadata, and always apply `setInputs(currentInputs)`.
+    - `resetDraft()` resets inputs to `createInitialMobileInputs(userStation)` so clicking "New Report" preserves the officer's assigned station.
+    - `STATION_OPTIONS` includes both `"Athi River mobile"` and `"Athiriver mobile"` for complete compatibility.
+

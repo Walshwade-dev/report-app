@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import secrets
 from datetime import datetime
 from typing import Any
@@ -420,7 +421,16 @@ async def create_report_session(payload: ReportSessionCreate, current_user: User
     # Override for non-admins to lock station and prepared_by
     if current_user.role != "admin":
         if current_user.station:
-            station = current_user.station
+            is_mobile = bool(
+                (payload.station and "mobile" in payload.station.lower())
+                or (payload.weighbridge_name and "mobile" in payload.weighbridge_name.lower())
+                or (payload.bound and "mobile" in payload.bound.lower())
+            )
+            base_clean = re.sub(r"\s+mobile$", "", current_user.station.strip(), flags=re.IGNORECASE).strip()
+            if is_mobile:
+                station = f"{base_clean} mobile"
+            else:
+                station = base_clean
         payload.prepared_by = current_user.full_name or current_user.username
 
     if not station:
@@ -1567,8 +1577,18 @@ async def update_report_session_metadata(
     # Override/lock for non-admins
     if current_user.role != "admin":
         if current_user.station:
-            payload.station = current_user.station
-            payload.weighbridge_name = current_user.station
+            is_mobile = bool(
+                (payload.station and "mobile" in payload.station.lower())
+                or (payload.weighbridge_name and "mobile" in payload.weighbridge_name.lower())
+                or (payload.bound and "mobile" in payload.bound.lower())
+            )
+            base_clean = re.sub(r"\s+mobile$", "", current_user.station.strip(), flags=re.IGNORECASE).strip()
+            if is_mobile:
+                payload.station = f"{base_clean} mobile"
+                payload.weighbridge_name = f"{base_clean} mobile"
+            else:
+                payload.station = base_clean
+                payload.weighbridge_name = base_clean
         payload.prepared_by = current_user.full_name or current_user.username
 
     if (
