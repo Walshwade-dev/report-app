@@ -21,10 +21,19 @@ def extract_raw_text_from_file(file_path: str | Path) -> str:
     if suffix not in SUPPORTED_EXTENSIONS:
         raise ValueError(f"Unsupported file format '{suffix}'. Supported formats: {', '.join(sorted(SUPPORTED_EXTENSIONS))}")
 
+    tesseract_bin = shutil.which("tesseract") or "/usr/bin/tesseract"
+    pdftotext_bin = shutil.which("pdftotext") or "/usr/bin/pdftotext"
+    pdftoppm_bin = shutil.which("pdftoppm") or "/usr/bin/pdftoppm"
+
     if suffix in SUPPORTED_IMAGE_EXTENSIONS:
+        if not shutil.which("tesseract") and not os.path.exists(tesseract_bin):
+            raise RuntimeError(
+                "Tesseract OCR engine ('tesseract') is not installed or not in PATH on the server. "
+                "Please ensure 'tesseract-ocr' and 'tesseract-ocr-eng' are installed in the deployment environment."
+            )
         try:
             res = subprocess.run(
-                ["tesseract", str(path), "stdout", "--oem", "1", "-l", "eng"],
+                [tesseract_bin, str(path), "stdout", "--oem", "1", "-l", "eng"],
                 capture_output=True,
                 text=True,
                 check=True,
@@ -36,25 +45,36 @@ def extract_raw_text_from_file(file_path: str | Path) -> str:
 
     if suffix == ".pdf":
         # 1. Try pdftotext first (fast for digital PDFs)
-        try:
-            txt_res = subprocess.run(
-                ["pdftotext", str(path), "-"],
-                capture_output=True,
-                text=True,
-            )
-            digital_text = txt_res.stdout.strip()
-            # If pdftotext found substantial readable text, return it
-            if len(digital_text) > 120 and re.search(r"[a-zA-Z]{3,}", digital_text):
-                return digital_text
-        except Exception as e:
-            logger.debug("pdftotext check skipped or failed: %s", e)
+        if shutil.which("pdftotext") or os.path.exists(pdftotext_bin):
+            try:
+                txt_res = subprocess.run(
+                    [pdftotext_bin, str(path), "-"],
+                    capture_output=True,
+                    text=True,
+                )
+                digital_text = txt_res.stdout.strip()
+                # If pdftotext found substantial readable text, return it
+                if len(digital_text) > 120 and re.search(r"[a-zA-Z]{3,}", digital_text):
+                    return digital_text
+            except Exception as e:
+                logger.debug("pdftotext check skipped or failed: %s", e)
 
         # 2. Scanned or image-based PDF: render pages to PNGs and run tesseract
+        if not shutil.which("tesseract") and not os.path.exists(tesseract_bin):
+            raise RuntimeError(
+                "Tesseract OCR engine ('tesseract') is not installed or not in PATH on the server. "
+                "Please ensure 'tesseract-ocr' and 'tesseract-ocr-eng' are installed in the deployment environment."
+            )
+        if not shutil.which("pdftoppm") and not os.path.exists(pdftoppm_bin):
+            raise RuntimeError(
+                "pdftoppm binary is not installed or not in PATH. Please ensure 'poppler-utils' is installed."
+            )
+
         temp_dir = tempfile.mkdtemp(prefix="transgression_ocr_")
         try:
             prefix = os.path.join(temp_dir, "page")
             subprocess.run(
-                ["pdftoppm", "-png", "-r", "200", str(path), prefix],
+                [pdftoppm_bin, "-png", "-r", "200", str(path), prefix],
                 capture_output=True,
                 check=True,
             )
@@ -68,7 +88,7 @@ def extract_raw_text_from_file(file_path: str | Path) -> str:
             for img_file in pages:
                 img_path = os.path.join(temp_dir, img_file)
                 ocr_res = subprocess.run(
-                    ["tesseract", img_path, "stdout", "--oem", "1", "-l", "eng"],
+                    [tesseract_bin, img_path, "stdout", "--oem", "1", "-l", "eng"],
                     capture_output=True,
                     text=True,
                 )
