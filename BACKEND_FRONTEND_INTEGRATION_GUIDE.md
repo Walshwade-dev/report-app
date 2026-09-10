@@ -2504,4 +2504,20 @@ The `/api/report-sessions/analytics/dashboard` endpoint and frontend `MobileSumm
   - Station select and `preparedBy` inputs are disabled with high-contrast locked styling and a `"Station Locked"` indicator badge.
   - `handleDownload` uses `authHeaders()` from `@/lib/api` to consistently send `Authorization: Bearer <token>` from `dnk-auth-token`.
 
+### 26. Traffic Census (CC Records) OCR Extractor & Shift Subtotals Population
+
+- **OCR Service (`backend/app/services/census_ocr_extractor.py`)**:
+  - Implements `extract_census_from_file_bytes(content, filename)` for Traffic Census (CC Records) scanned documents.
+  - Automatically converts PDF pages into high-resolution images and uses Tesseract TSV data to locate shift blocks, hour ranges, and vehicle subtotal cells.
+  - Maps shift subtotals to canonical 3-row order based on time intervals:
+    - **Shift A (Row 0)**: `0000 - 0700`
+    - **Shift B (Row 1)**: `0700 - 1800`
+    - **Shift C (Row 2)**: `1800 - 2359`
+  - Reconciles subtotals against the Grand Total row (when present) using mathematical checksum verification.
+- **Backend Endpoint (`POST /api/reports/{report_id}/census/ocr-extract`)**:
+  - Added in `backend/app/routes/reports.py`.
+  - Accepts multipart `file: UploadFile` and verifies report write permissions.
+  - Returns structured JSON payload with `cc_records`, vehicle category grand totals, clerk names, and checksum validation status.
+
+
 

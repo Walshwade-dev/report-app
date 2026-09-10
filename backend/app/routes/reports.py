@@ -43,6 +43,7 @@ from app.services.preview_renderer import get_cached_section_preview
 from app.services.report_session_metrics import get_wideload_count_from_session
 from app.services.report_upload_service import read_upload_dataframe
 from app.services.report_session_store import ReportSession, report_session_store
+from app.services.census_ocr_extractor import extract_census_from_file_bytes
 from app.services.transgression_ocr_extractor import extract_transgression_from_file_bytes
 from app.templates import impounded_prohibited, vehicle_inspection
 
@@ -1989,6 +1990,38 @@ async def extract_transgression_ocr_endpoint(
         raise HTTPException(
             status_code=500,
             detail={"message": f"Transgression OCR extraction failed: {exc}"},
+        )
+
+
+@router.post("/report-sessions/{report_id}/census/ocr-extract")
+async def extract_census_ocr_endpoint(
+    report_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(check_write_permission),
+):
+    require_session(report_id)
+    filename = file.filename or "census.pdf"
+
+    try:
+        content = await file.read()
+        if not content:
+            raise ValueError("Uploaded file is empty.")
+
+        result = extract_census_from_file_bytes(
+            content,
+            filename=filename,
+        )
+        return result
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": str(exc)},
+        )
+    except Exception as exc:
+        logger.exception("Census OCR extraction error for report %s: %s", report_id, exc)
+        raise HTTPException(
+            status_code=500,
+            detail={"message": f"Census OCR extraction failed: {exc}"},
         )
 
 
