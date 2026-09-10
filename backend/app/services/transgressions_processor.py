@@ -54,7 +54,13 @@ ACTION_REPORT_ALIASES = {
     "OCS Reported To": ["ocs_reported_to", "ocs_reported", "ocs"],
     "Action 1": ["action_1", "action1", "action"],
     "Action 2": ["action_2", "action2"],
-    "Attach evidence if any": ["attach_evidence_if_any", "evidence", "attachment"],
+    "Attach evidence if any": [
+        "attach_evidence_if_any",
+        "attach_evidence",
+        "attachevidence",
+        "evidence",
+        "attachment",
+    ],
     "Weight Noted": ["weight_noted", "weight"],
     "Tagged in System": ["tagged_in_system", "tagged"],
 }
