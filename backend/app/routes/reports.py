@@ -768,6 +768,7 @@ async def get_analytics_dashboard(
     static_date: str | None = None,
     mobile_date: str | None = None,
     mobile_bound: str | None = None,
+    station: str | None = None,
 ):
     sessions = []
     session_modified_at: dict[str, float] = {}
@@ -775,8 +776,11 @@ async def get_analytics_dashboard(
         sessions.append(session)
         session_modified_at[session.report_id] = modified_at
 
+    target_station = classify_station(station) or (station.strip() if station else None)
+    target_station_norm = target_station.lower() if target_station else None
+
     latest_static_sessions: dict[tuple[str, str, str], tuple[ReportSession, float]] = {}
-    latest_mobile_sessions: dict[tuple[str, str], tuple[ReportSession, float]] = {}
+    latest_mobile_sessions: dict[tuple[str, str, str], tuple[ReportSession, float]] = {}
 
     station_names = {
         "Juja": "Juja Weighbridge",
@@ -802,8 +806,10 @@ async def get_analytics_dashboard(
     
     for s in sessions:
         if s.sections.get("mobile_report", {}).get("status") == "ready":
+            st_code = classify_station(s.station or s.weighbridge_name)
+            s_station = st_code or (s.station or s.weighbridge_name or "").strip()
             slot = mobile_report_slot(s.bound)
-            key = (s.report_date, slot)
+            key = (s.report_date, s_station.lower(), slot)
             modified_at = session_modified_at.get(s.report_id, 0)
             previous = latest_mobile_sessions.get(key)
             if previous is None or modified_at >= previous[1]:
@@ -819,10 +825,23 @@ async def get_analytics_dashboard(
             if previous is None or modified_at >= previous[1]:
                 latest_static_sessions[key] = (s, modified_at)
 
-    static_dates = sorted(
+    all_static_dates = sorted(
         {report_date for report_date, _, _ in latest_static_sessions},
         reverse=True,
     )
+    if target_station_norm:
+        station_static_dates = sorted(
+            {
+                report_date
+                for report_date, st_key, _ in latest_static_sessions
+                if st_key.lower() == target_station_norm or (classify_station(st_key) and classify_station(st_key).lower() == target_station_norm)
+            },
+            reverse=True,
+        )
+        static_dates = station_static_dates
+    else:
+        static_dates = all_static_dates
+
     selected_static_date = (
         static_date if static_date in static_dates else (static_dates[0] if static_dates else None)
     )
@@ -833,16 +852,17 @@ async def get_analytics_dashboard(
         "total": {**empty_static_kpis(), "label": "Total"},
     }
 
+    # Cross-station comparison stats (Traffic comparison between stations, court cases, compliance rates)
+    charts_static_date = selected_static_date or (all_static_dates[0] if all_static_dates else None)
     for (report_date, _, bound_key), (s, _) in latest_static_sessions.items():
-        x = daily_hour_total_column(s, "X") or 0
-        y = daily_hour_total_column(s, "Y") or 0
-        g = daily_hour_total_column(s, "G") or 0
-        called = daily_hour_total_column(s, "C") or 0
-        cases = s.manual_inputs.get("cases_cleared_in_court", 0) or 0
-
-        if selected_static_date and report_date == selected_static_date:
+        if charts_static_date and report_date == charts_static_date:
             code = classify_station(s.station or s.weighbridge_name)
             if code and code in stations_data:
+                x = daily_hour_total_column(s, "X") or 0
+                y = daily_hour_total_column(s, "Y") or 0
+                g = daily_hour_total_column(s, "G") or 0
+                called = daily_hour_total_column(s, "C") or 0
+                cases = s.manual_inputs.get("cases_cleared_in_court", 0) or 0
                 overload_no_permit = max(y - g, 0)
                 compliant = max(called - overload_no_permit, 0)
 
@@ -852,12 +872,22 @@ async def get_analytics_dashboard(
                 stations_data[code]["compliance"][bound_key]["weighed"] += x
                 stations_data[code]["compliance"][bound_key]["compliant"] += compliant
 
-
+        # Station-indigenous static KPIs
         if selected_static_date and report_date == selected_static_date:
+            session_station = classify_station(s.station or s.weighbridge_name) or (s.station or s.weighbridge_name or "").strip()
+            if target_station_norm and session_station.lower() != target_station_norm:
+                continue
             if s.bound:
                 static_by_bound[bound_key]["label"] = s.bound
             add_static_kpis(static_by_bound[bound_key], s)
             add_static_kpis(static_by_bound["total"], s)
+
+    # Filter mobile sessions to target station if provided
+    filtered_mobile: list[tuple[str, str, str, ReportSession, float]] = []
+    for (report_date, s_st, slot), (session, modified_at) in latest_mobile_sessions.items():
+        if target_station_norm and s_st != target_station_norm:
+            continue
+        filtered_mobile.append((report_date, s_st, slot, session, modified_at))
 
     mobile_reports = [
         {
@@ -868,7 +898,7 @@ async def get_analytics_dashboard(
             "report_id": session.report_id,
             "updated_at": modified_at,
         }
-        for (report_date, slot), (session, modified_at) in latest_mobile_sessions.items()
+        for report_date, _, slot, session, modified_at in filtered_mobile
     ]
     mobile_reports.sort(
         key=lambda item: (
@@ -891,8 +921,10 @@ async def get_analytics_dashboard(
 
     selected_session = None
     if selected_mobile:
-        selected_key = (str(selected_mobile["date"]), str(selected_mobile["bound"]))
-        selected_session = latest_mobile_sessions[selected_key][0]
+        for report_date, _, slot, session, _ in filtered_mobile:
+            if report_date == selected_mobile["date"] and slot == selected_mobile["bound"]:
+                selected_session = session
+                break
 
     mobile_summary = (
         selected_session.sections["mobile_report"].get("summary", {})
@@ -924,89 +956,8 @@ async def get_analytics_dashboard(
 
 
 @router.get("/report-sessions/analytics/details")
-async def get_analytics_details():
+async def get_analytics_details(station: str | None = None):
     sessions = [session for session, _ in available_report_sessions()]
-
-    juja_sessions = [s for s in sessions if s.station and "juja" in s.station.lower()]
-    
-    juja_thika_traffic = 0
-    juja_nairobi_traffic = 0
-    juja_thika_cases = 0
-    juja_nairobi_cases = 0
-    juja_total_called = 0
-    juja_total_compliant = 0
-    juja_overloads_intercepted = 0
-    
-    for s in juja_sessions:
-        is_thika = is_bound_a("Juja", s.bound)
-        
-        weighed = daily_hour_total_column(s, "X") or 0
-        if is_thika:
-            juja_thika_traffic += weighed
-        else:
-            juja_nairobi_traffic += weighed
-            
-        cases = s.manual_inputs.get("cases_cleared_in_court", 0) or 0
-        if is_thika:
-            juja_thika_cases += cases
-        else:
-            juja_nairobi_cases += cases
-            
-        called = daily_hour_total_column(s, "C") or 0
-        y = daily_hour_total_column(s, "Y") or 0
-        g = daily_hour_total_column(s, "G") or 0
-        overload_no_permit = max(y - g, 0)
-        compliant = max(called - overload_no_permit, 0)
-        
-        juja_total_called += called
-        juja_total_compliant += compliant
-        juja_overloads_intercepted += overload_no_permit
-
-    juja_total_traffic = juja_thika_traffic + juja_nairobi_traffic
-    juja_total_cases = juja_thika_cases + juja_nairobi_cases
-    juja_compliance_rate = (juja_total_compliant / juja_total_called * 100) if juja_total_called > 0 else 0.0
-
-    # Daily breakdown for Juja
-    daily_traffic = {}
-    daily_cases = {}
-    
-    for s in juja_sessions:
-        try:
-            day_str = s.report_date.split("-")[2]  # DD
-        except Exception:
-            continue
-            
-        is_thika = is_bound_a("Juja", s.bound)
-        weighed = daily_hour_total_column(s, "X") or 0
-        cases = s.manual_inputs.get("cases_cleared_in_court", 0) or 0
-        
-        if day_str not in daily_traffic:
-            daily_traffic[day_str] = {"thikaBound": 0, "nairobiBound": 0}
-        if day_str not in daily_cases:
-            daily_cases[day_str] = {"thikaBound": 0, "nairobiBound": 0}
-            
-        if is_thika:
-            daily_traffic[day_str]["thikaBound"] += weighed
-            daily_cases[day_str]["thikaBound"] += cases
-        else:
-            daily_traffic[day_str]["nairobiBound"] += weighed
-            daily_cases[day_str]["nairobiBound"] += cases
-
-    traffic_data = []
-    for day in sorted(daily_traffic.keys()):
-        traffic_data.append({
-            "day": day,
-            "thikaBound": daily_traffic[day]["thikaBound"],
-            "nairobiBound": daily_traffic[day]["nairobiBound"]
-        })
-        
-    court_cases_data = []
-    for day in sorted(daily_cases.keys()):
-        court_cases_data.append({
-            "day": day,
-            "thikaBound": daily_cases[day]["thikaBound"],
-            "nairobiBound": daily_cases[day]["nairobiBound"]
-        })
 
     station_names = {
         "Juja": "Juja Weighbridge",
@@ -1016,6 +967,119 @@ async def get_analytics_details():
         "Isinya": "Isinya",
         "Suswa": "Suswa"
     }
+
+    target_code = classify_station(station) or (station.strip() if station else "Juja")
+    target_lower = target_code.lower()
+
+    bound_a_name = "Bound A"
+    bound_b_name = "Bound B"
+    if "juja" in target_lower:
+        bound_a_name = "Thika Bound"
+        bound_b_name = "Nairobi Bound"
+    elif "athi" in target_lower:
+        bound_a_name = "Mombasa Bound"
+        bound_b_name = "Nairobi Bound"
+    elif "gilgil" in target_lower:
+        bound_a_name = "Nairobi Bound"
+        bound_b_name = "Nakuru Bound"
+    elif "kanyonyo" in target_lower:
+        bound_a_name = "Mwingi Bound"
+        bound_b_name = "Thika Bound"
+    elif "isinya" in target_lower:
+        bound_a_name = "Kajiado Bound"
+        bound_b_name = "Nairobi Bound"
+    elif "suswa" in target_lower:
+        bound_a_name = "Narok Bound"
+        bound_b_name = "Nairobi Bound"
+
+    station_sessions = [
+        s for s in sessions 
+        if (classify_station(s.station or s.weighbridge_name) or (s.station or s.weighbridge_name or "").strip()).lower() == target_lower
+    ]
+    
+    station_bound_a_traffic = 0
+    station_bound_b_traffic = 0
+    station_bound_a_cases = 0
+    station_bound_b_cases = 0
+    station_total_called = 0
+    station_total_compliant = 0
+    station_overloads_intercepted = 0
+    
+    for s in station_sessions:
+        is_a = is_bound_a(target_code, s.bound)
+        
+        weighed = daily_hour_total_column(s, "X") or 0
+        if is_a:
+            station_bound_a_traffic += weighed
+        else:
+            station_bound_b_traffic += weighed
+            
+        cases = s.manual_inputs.get("cases_cleared_in_court", 0) or 0
+        if is_a:
+            station_bound_a_cases += cases
+        else:
+            station_bound_b_cases += cases
+            
+        called = daily_hour_total_column(s, "C") or 0
+        y = daily_hour_total_column(s, "Y") or 0
+        g = daily_hour_total_column(s, "G") or 0
+        overload_no_permit = max(y - g, 0)
+        compliant = max(called - overload_no_permit, 0)
+        
+        station_total_called += called
+        station_total_compliant += compliant
+        station_overloads_intercepted += overload_no_permit
+
+    station_total_traffic = station_bound_a_traffic + station_bound_b_traffic
+    station_total_cases = station_bound_a_cases + station_bound_b_cases
+    station_compliance_rate = (station_total_compliant / station_total_called * 100) if station_total_called > 0 else 0.0
+
+    # Daily breakdown for station
+    daily_traffic: dict[str, dict[str, int]] = {}
+    daily_cases: dict[str, dict[str, int]] = {}
+    
+    for s in station_sessions:
+        try:
+            day_str = s.report_date.split("-")[2]  # DD
+        except Exception:
+            continue
+            
+        is_a = is_bound_a(target_code, s.bound)
+        weighed = daily_hour_total_column(s, "X") or 0
+        cases = s.manual_inputs.get("cases_cleared_in_court", 0) or 0
+        
+        if day_str not in daily_traffic:
+            daily_traffic[day_str] = {"boundA": 0, "boundB": 0}
+        if day_str not in daily_cases:
+            daily_cases[day_str] = {"boundA": 0, "boundB": 0}
+            
+        if is_a:
+            daily_traffic[day_str]["boundA"] += weighed
+            daily_cases[day_str]["boundA"] += cases
+        else:
+            daily_traffic[day_str]["boundB"] += weighed
+            daily_cases[day_str]["boundB"] += cases
+
+    traffic_data = []
+    for day in sorted(daily_traffic.keys()):
+        traffic_data.append({
+            "day": day,
+            "thikaBound": daily_traffic[day]["boundA"],
+            "nairobiBound": daily_traffic[day]["boundB"],
+            "boundA": daily_traffic[day]["boundA"],
+            "boundB": daily_traffic[day]["boundB"],
+        })
+        
+    court_cases_data = []
+    for day in sorted(daily_cases.keys()):
+        court_cases_data.append({
+            "day": day,
+            "thikaBound": daily_cases[day]["boundA"],
+            "nairobiBound": daily_cases[day]["boundB"],
+            "boundA": daily_cases[day]["boundA"],
+            "boundB": daily_cases[day]["boundB"],
+        })
+
     cross_station = {code: 0 for code in station_names}
     for s in sessions:
         code = classify_station(s.station or s.weighbridge_name)
@@ -1027,20 +1091,28 @@ async def get_analytics_details():
         cross_station_data.append({
             "name": name,
             "cases": cross_station[code],
-            "active": code == "Juja"
+            "active": code.lower() == target_lower
         })
 
     return {
         "kpis": {
-            "totalTraffic": juja_total_traffic,
-            "thikaTraffic": juja_thika_traffic,
-            "nairobiTraffic": juja_nairobi_traffic,
-            "totalCourtCases": juja_total_cases,
-            "thikaCourtCases": juja_thika_cases,
-            "nairobiCourtCases": juja_nairobi_cases,
-            "complianceRate": round(juja_compliance_rate, 1),
-            "overloadsIntercepted": juja_overloads_intercepted
+            "totalTraffic": station_total_traffic,
+            "thikaTraffic": station_bound_a_traffic,
+            "nairobiTraffic": station_bound_b_traffic,
+            "boundATraffic": station_bound_a_traffic,
+            "boundBTraffic": station_bound_b_traffic,
+            "totalCourtCases": station_total_cases,
+            "thikaCourtCases": station_bound_a_cases,
+            "nairobiCourtCases": station_bound_b_cases,
+            "boundACourtCases": station_bound_a_cases,
+            "boundBCourtCases": station_bound_b_cases,
+            "complianceRate": round(station_compliance_rate, 1),
+            "overloadsIntercepted": station_overloads_intercepted
         },
+        "station": target_code,
+        "stationName": station_names.get(target_code, target_code),
+        "boundALabel": bound_a_name,
+        "boundBLabel": bound_b_name,
         "trafficData": traffic_data,
         "courtCasesData": court_cases_data,
         "crossStationData": cross_station_data
@@ -1048,7 +1120,7 @@ async def get_analytics_details():
 
 
 @router.get("/report-sessions/analytics/dms-performance")
-async def get_dms_performance(date: str | None = None):
+async def get_dms_performance(date: str | None = None, station: str | None = None):
     requested_date = date or datetime.now().strftime("%Y-%m-%d")
     try:
         filter_date = datetime.strptime(requested_date, "%Y-%m-%d")
@@ -1056,10 +1128,18 @@ async def get_dms_performance(date: str | None = None):
         filter_date = datetime.now()
         requested_date = filter_date.strftime("%Y-%m-%d")
 
+    target_station = classify_station(station) or (station.strip() if station else None)
+    target_station_norm = target_station.lower() if target_station else None
+
     all_ready_mobile: list[tuple[ReportSession, float]] = []
     for session, modified_at in available_report_sessions():
         try:
             if session and session.sections.get("mobile_report", {}).get("status") == "ready":
+                if target_station_norm:
+                    st_code = classify_station(session.station or session.weighbridge_name)
+                    st_name = st_code or (session.station or session.weighbridge_name or "").strip()
+                    if st_name.lower() != target_station_norm:
+                        continue
                 all_ready_mobile.append((session, modified_at))
         except Exception:
             pass
@@ -1795,10 +1875,19 @@ async def download_report_session_mobile_word_report(report_id: str):
 
 
 @router.get("/report-sessions/sms-summaries/dates")
-async def get_sms_summary_dates():
+async def get_sms_summary_dates(station: str | None = None):
+    target_station = classify_station(station) or (station.strip() if station else None)
+    target_station_norm = target_station.lower() if target_station else None
+
     dates = set()
     for session, _ in available_report_sessions():
         try:
+            if target_station_norm:
+                st_code = classify_station(session.station or session.weighbridge_name)
+                st_name = st_code or (session.station or session.weighbridge_name or "").strip()
+                if st_name.lower() != target_station_norm:
+                    continue
+
             has_sms_data = (
                 session
                 and session.report_date
