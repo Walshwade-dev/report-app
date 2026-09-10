@@ -123,9 +123,11 @@ Admin console exists in the frontend for password-gated report history and delet
 Station-level data scoping implemented for multi-station isolation (e.g. Kanyonyo vs Juja)
 Mobile two-shift report generation and KPI credit attribution implemented for morning and evening shifts
 Mobile two-shift mileage table properly splits morning and evening distances with overall totals
-PSV concession logic gives 2000KG GVW allowance (overload <= 2000KG marked withinAllowed rather than charged)
 Mobile checklist scale test calibration tolerance updated to 2000KG threshold
 Mobile shift statistics (Shift A, Shift B, Total) exposed in analytics dashboard for dual-shift KPI presentation
+Transgression OCR extraction service and endpoint (POST /api/report-sessions/{report_id}/transgressions/ocr-extract) implemented with hybrid pdftotext/tesseract extraction, Kenyan plate formatting, duty officers, 24-hour time formatting (0000hrs), and YES/NO boolean tags
+Report session reset endpoint (POST /api/report-sessions/{report_id}/reset) implemented for clearing uploads, artifacts, and manual inputs
+Transgression duplicate truck protection, auto-dismissing heads-up extraction feedback, and full report reset flow integrated into frontend
 ```
 
 ### In Progress
@@ -2410,6 +2412,29 @@ The `/api/report-sessions/analytics/dashboard` endpoint and frontend `MobileSumm
   - In `ReportHeader.tsx` and `useReportSession.ts`: For Kanyonyo station, the bound selector is locked and defaulted exclusively to `"NAIROBI BOUND"`.
 - **Juja Station Bound Label Alignment**:
   - For Juja station (`station=juja`), static report KPIs display **"Thika Bound"** for Bound A and **"Nairobi Bound"** for Bound B (matching each other in Title Case and replacing generic `"Bound A"` labels). Modal axle configuration breakdown also displays `"Thika"` and `"Nairobi"` counters.
+### 20. Transgression OCR Extraction Pipeline
 
+- **Endpoint**: `POST /api/report-sessions/{report_id}/transgressions/ocr-extract`
+  - Accepts uploaded file via multipart/form-data (`.pdf`, `.png`, `.jpg`, `.jpeg`, `.tiff`, `.webp`).
+  - Implements multi-strategy text extraction using `pdftotext` (fast vector extraction) falling back to `pdftoppm` + `tesseract` for scanned tickets and photos.
+  - Automatically parses KeNHA Tag Tickets and transgression registers:
+    - Normalizes Kenyan vehicle registrations (e.g. `KDG 096Q`).
+    - Formats 24-hour time strictly as `0000hrs` (e.g., `1101hrs`).
+    - Defaults Next Weighbridge (`nextWb`) and Report Sent (`nextWbReportSent`) to `"-"`.
+    - Parses all officers on duty into a single comma-separated string (e.g. `PC OFUSA JAMES, PC BENJAMIN GUTHIRU, SGT ANGELO MBOGORI`).
+    - Action taken is standardized to `"chased and returned"`, `"chased not found"`, or verbatim text.
+    - Strictly structures `attachEvidence` as `{tag_id}, {ob_no}` (e.g., `TAGJURU202693218384, 13/06/09/2026`).
+    - Populates Boolean flags as `"YES"` or `"NO"` (`ocsReportedTo`, `weightNoted`, `taggedInSystem`).
+  - Returns structured candidate row objects for both `DailyTransgressionRow` and `TransgressionActionRow`.
 
+### 21. Report Session Reset & Duplicate Truck Protection
 
+- **Reset Endpoint**: `POST /api/report-sessions/{report_id}/reset`
+  - Clears all generated artifacts, uploads, dataframes, and manual inputs from the backend session store and database repository.
+- **Frontend Reset Integration**:
+  - Clicking **"New Report / Reset"** calls `resetReportSession(reportId)`, clears local state, wipes manual inputs (`casesCleared: 0`, `transgressions: 0`, `dailyTransgressions: []`, `transgressionActions: []`), and removes active report IDs from `localStorage`.
+- **Duplicate Prevention & Alerting**:
+  - On OCR upload, candidate truck plates and Tag IDs are compared against existing entries in `dailyTransgressions` and `transgressionActions`.
+  - Re-uploading a document for an already populated truck is blocked to prevent duplicate row creation.
+  - Alerts the operator with: `Transgression details for "{vehicle reg}" have already been populated and can not be repopulated for the same truck.`
+  - Extraction success notifications auto-dismiss in under a second (850ms) as a brief heads-up banner.

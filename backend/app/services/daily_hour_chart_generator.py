@@ -3,7 +3,7 @@ import io
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 import pandas as pd
-from docx import Document
+from docx.document import Document
 from docx.enum.table import (
     WD_CELL_VERTICAL_ALIGNMENT,
     WD_ROW_HEIGHT_RULE,
@@ -215,7 +215,7 @@ def create_daily_hour_chart_image(chart_df, width=6.61, height=6.57):
 
     fig = Figure(figsize=(width, height), dpi=150)
     canvas = FigureCanvasAgg(fig)
-    ax = fig.add_axes([0.08, 0.18, 0.89, 0.72])
+    ax = fig.add_axes((0.08, 0.18, 0.89, 0.72))
     fig.patch.set_facecolor("white")
     fig.patch.set_edgecolor("#D9D9D9")
     fig.patch.set_linewidth(1.0)
@@ -323,7 +323,6 @@ def add_daily_hour_chart_section(doc: Document, daily_df, is_preview: bool = Fal
 
     container_table = doc.add_table(rows=1, cols=2)
     container_table.autofit = False
-    container_table.allow_autofit = False
     container_table.alignment = WD_TABLE_ALIGNMENT.CENTER
 
     set_fixed_table_layout(container_table)
@@ -340,7 +339,6 @@ def add_daily_hour_chart_section(doc: Document, daily_df, is_preview: bool = Fal
 
     small_table = left_cell.add_table(rows=27, cols=5)
     small_table.autofit = False
-    small_table.allow_autofit = False
     small_table.alignment = WD_TABLE_ALIGNMENT.LEFT
 
     set_fixed_table_layout(small_table)

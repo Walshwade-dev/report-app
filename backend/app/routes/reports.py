@@ -42,6 +42,7 @@ from app.services.preview_renderer import get_cached_section_preview
 from app.services.report_session_metrics import get_wideload_count_from_session
 from app.services.report_upload_service import read_upload_dataframe
 from app.services.report_session_store import ReportSession, report_session_store
+from app.services.transgression_ocr_extractor import extract_transgression_from_file_bytes
 from app.templates import impounded_prohibited, vehicle_inspection
 
 
@@ -547,6 +548,16 @@ async def delete_report_session(
     return {"status": "deleted", "report_id": report_id}
 
 
+@router.post("/report-sessions/{report_id}/reset")
+async def reset_report_session_endpoint(
+    report_id: str,
+    current_user: User = Depends(check_write_permission),
+):
+    session = report_session_store.reset_session(report_id)
+    invalidate_sessions_cache()
+    return serialize_session(session)
+
+
 @router.get("/report-sessions/{report_id}/summary-cards")
 async def get_report_session_summary_cards(report_id: str):
     return build_summary_cards(require_session(report_id))
@@ -614,6 +625,9 @@ def mobile_report_manual_inputs(session: ReportSession) -> dict:
     extra_inputs = session.manual_inputs.get("extra")
     if isinstance(extra_inputs, dict) and isinstance(extra_inputs.get("mobile_report"), dict):
         return extra_inputs["mobile_report"]
+
+    return {}
+
 
 def _mobile_session_sms_kpis(session: ReportSession | None) -> dict[str, int]:
     if session is None:
@@ -1921,6 +1935,40 @@ async def upload_mobile_report_file(
                 "section": "mobile_report",
                 "message": str(exc),
             },
+        )
+
+
+@router.post("/report-sessions/{report_id}/transgressions/ocr-extract")
+async def extract_transgression_ocr_endpoint(
+    report_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(check_write_permission),
+):
+    session = require_session(report_id)
+    filename = file.filename or "transgression.pdf"
+
+    try:
+        content = await file.read()
+        if not content:
+            raise ValueError("Uploaded file is empty.")
+
+        station_name = session.weighbridge_name or session.station
+        result = extract_transgression_from_file_bytes(
+            content,
+            filename=filename,
+            station_name=station_name,
+        )
+        return result
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": str(exc)},
+        )
+    except Exception as exc:
+        logger.exception("Transgression OCR extraction error for report %s: %s", report_id, exc)
+        raise HTTPException(
+            status_code=500,
+            detail={"message": f"Transgression OCR extraction failed: {exc}"},
         )
 
 
