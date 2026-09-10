@@ -434,9 +434,8 @@ def test_is_bound_a():
     assert reports.is_bound_a("Gilgil", "Nairobi Bound") is True
     assert reports.is_bound_a("Gilgil", "Nakuru Bound") is False
 
-    # Kanyonyo tests
-    assert reports.is_bound_a("Kanyonyo", "Mwingi Bound") is True
-    assert reports.is_bound_a("Kanyonyo", "Thika Bound") is False
+    # Kanyonyo tests (single bound: Nairobi Bound)
+    assert reports.is_bound_a("Kanyonyo", "Nairobi Bound") is True
 
     # Isinya tests
     assert reports.is_bound_a("Isinya", "Kajiado Bound") is True

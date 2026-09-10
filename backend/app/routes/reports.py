@@ -586,7 +586,7 @@ def is_bound_a(station_code: str | None, bound_name: str | None) -> bool:
     elif "gilgil" in station_lower:
         return "nairobi" in bound or "bound a" in bound or "incoming" in bound
     elif "kanyonyo" in station_lower:
-        return "mwingi" in bound or "bound a" in bound or "incoming" in bound
+        return True  # Kanyonyo operates a single bound: Nairobi Bound
     elif "isinya" in station_lower:
         return "kajiado" in bound or "bound a" in bound or "incoming" in bound
     elif "suswa" in station_lower:
@@ -995,6 +995,19 @@ async def get_analytics_dashboard(
             add_static_kpis(static_by_bound[bound_key], s)
             add_static_kpis(static_by_bound["total"], s)
 
+    is_kanyonyo = target_station_norm == "kanyonyo"
+    if is_kanyonyo:
+        static_by_bound["boundA"]["label"] = static_by_bound["boundA"]["label"] or "Nairobi Bound"
+        if not static_by_bound["boundA"]["label"] or static_by_bound["boundA"]["label"] == "Bound A":
+            static_by_bound["boundA"]["label"] = "Nairobi Bound"
+
+    is_juja = target_station_norm == "juja"
+    if is_juja:
+        if not static_by_bound["boundA"]["label"] or static_by_bound["boundA"]["label"].lower() in ("bound a", "thika bound", "thika"):
+            static_by_bound["boundA"]["label"] = "Thika Bound"
+        if not static_by_bound["boundB"]["label"] or static_by_bound["boundB"]["label"].lower() in ("bound b", "nairobi bound", "nairobi"):
+            static_by_bound["boundB"]["label"] = "Nairobi Bound"
+
     # Filter mobile sessions to target station if provided
     filtered_mobile: list[tuple[str, str, str, ReportSession, float]] = []
     for (report_date, s_st, slot), (session, modified_at) in latest_mobile_sessions.items():
@@ -1073,6 +1086,8 @@ async def get_analytics_dashboard(
             "dates": static_dates,
             "selectedDate": selected_static_date,
             "byBound": static_by_bound,
+            "isSingleBound": is_kanyonyo,
+            "singleBoundName": "Nairobi Bound" if is_kanyonyo else None,
         },
         "mobile": {
             "weighed": total_mobile_weighed,
@@ -1144,8 +1159,8 @@ async def get_analytics_details(station: str | None = None):
         bound_a_name = "Nairobi Bound"
         bound_b_name = "Nakuru Bound"
     elif "kanyonyo" in target_lower:
-        bound_a_name = "Mwingi Bound"
-        bound_b_name = "Thika Bound"
+        bound_a_name = "Nairobi Bound"
+        bound_b_name = ""
     elif "isinya" in target_lower:
         bound_a_name = "Kajiado Bound"
         bound_b_name = "Nairobi Bound"
@@ -2188,8 +2203,8 @@ async def get_sms_summaries_by_date(report_date: str, station: str | None = None
         bound_a_name = "NAIROBI BOUND"
         bound_b_name = "NAKURU BOUND"
     elif "KANYONYO" in station_upper:
-        bound_a_name = "MWINGI BOUND"
-        bound_b_name = "THIKA BOUND"
+        bound_a_name = "NAIROBI BOUND"
+        bound_b_name = ""
     elif "ISINYA" in station_upper:
         bound_a_name = "KAJIADO BOUND"
         bound_b_name = "NAIROBI BOUND"
@@ -2216,22 +2231,23 @@ async def get_sms_summaries_by_date(report_date: str, station: str | None = None
             "text": f"DAILY REPORT\n{station_upper} {bound_a_name} WB\nDate: {date_formatted}\n\n[Awaiting report upload and processing]"
         })
 
-    if static_b:
-        response.append({
-            "slot": "static_bound_b",
-            "title": f"Static: {static_b.weighbridge_name or station_upper} - {static_b.bound or bound_b_name}",
-            "exists": True,
-            "report_id": static_b.report_id,
-            "text": build_static_sms_summary(static_b)
-        })
-    else:
-        response.append({
-            "slot": "static_bound_b",
-            "title": f"Static: {station_upper} - {bound_b_name}",
-            "exists": False,
-            "report_id": None,
-            "text": f"DAILY REPORT\n{station_upper} {bound_b_name} WB\nDate: {date_formatted}\n\n[Awaiting report upload and processing]"
-        })
+    if "KANYONYO" not in station_upper:
+        if static_b:
+            response.append({
+                "slot": "static_bound_b",
+                "title": f"Static: {static_b.weighbridge_name or station_upper} - {static_b.bound or bound_b_name}",
+                "exists": True,
+                "report_id": static_b.report_id,
+                "text": build_static_sms_summary(static_b)
+            })
+        else:
+            response.append({
+                "slot": "static_bound_b",
+                "title": f"Static: {station_upper} - {bound_b_name}",
+                "exists": False,
+                "report_id": None,
+                "text": f"DAILY REPORT\n{station_upper} {bound_b_name} WB\nDate: {date_formatted}\n\n[Awaiting report upload and processing]"
+            })
 
     if mobile_1:
         response.append({

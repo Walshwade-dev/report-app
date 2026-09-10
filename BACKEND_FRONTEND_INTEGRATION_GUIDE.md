@@ -2395,3 +2395,21 @@ The `/api/report-sessions/analytics/dashboard` endpoint and frontend `MobileSumm
 - **Total**: Computed as the unified sum of `Shift A + Shift B`.
 - **UI Streamlining**: The mobile bound dropdown selector was removed from `MobileSummaryCards`, and the child container totals font size was increased to `text-sm font-extrabold` for optimal readability.
 
+### 19. Kanyonyo Single Bound ("Nairobi Bound") & Dashboard Static KPI Legibility
+
+- **Kanyonyo Weighbridge Topology**: Kanyonyo operates a single scale along Thika-Garissa road and therefore only has one operational bound: **"Nairobi Bound"** (or `"NAIROBI BOUND"`).
+- **Backend Analytics Scoping (`/api/report-sessions/analytics/dashboard`)**:
+  - Sets `isSingleBound: true` and `singleBoundName: "Nairobi Bound"` when `station=kanyonyo`.
+  - Sets `boundA.label = "Nairobi Bound"` and classifies all Kanyonyo session records into Bound A (`is_bound_a("Kanyonyo", ...) == True`).
+  - SMS summary endpoint returns only 1 static summary (`Static: KANYONYO - NAIROBI BOUND`) and omits `static_bound_b`.
+- **Static Report KPIs Dashboard Container**:
+  - Subcontainer titles upgraded from `text-[9px] text-slate-400` to `text-[10.5px] sm:text-[11px] font-extrabold uppercase tracking-wide text-slate-100` for clear readability.
+  - When `isSingleBound` is active (e.g. Kanyonyo): Renders a single prominent bound row showing `Nairobi Bound` (`text-cyan-200 font-bold`) and metric count (`text-white font-black font-mono`), eliminating the redundant 3-column breakdown.
+  - When multi-bound: Column labels upgraded to high-contrast `text-[8.5px] font-bold text-slate-200` with `text-xs sm:text-[12.5px] font-black text-white font-mono`.
+- **Report Officer & DMS Station Scoping**:
+  - In `ReportHeader.tsx` and `useReportSession.ts`: For Kanyonyo station, the bound selector is locked and defaulted exclusively to `"NAIROBI BOUND"`.
+- **Juja Station Bound Label Alignment**:
+  - For Juja station (`station=juja`), static report KPIs display **"Thika Bound"** for Bound A and **"Nairobi Bound"** for Bound B (matching each other in Title Case and replacing generic `"Bound A"` labels). Modal axle configuration breakdown also displays `"Thika"` and `"Nairobi"` counters.
+
+
+
