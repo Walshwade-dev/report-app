@@ -1,20 +1,25 @@
-from typing import Any
-import pandas as pd
+import os
+import re
+import secrets
 from datetime import datetime, timedelta
-from fastapi import APIRouter, HTTPException, Query, Header, Depends
-from fastapi.responses import Response
+from typing import Any
 
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import Response
+import pandas as pd
+from sqlalchemy.orm import Session
+
+from app.core.database import get_db
+from app.core.security import decode_access_token
 from app.db.models import User
 from app.routes.auth import get_current_user
-from app.services.report_session_store import report_session_store
 from app.services.daily_summary_processor import build_daily_summary_from_session
+from app.services.report_session_store import report_session_store
 from app.services.weekly_excel_report_builder import build_weekly_excel_report
 from app.services.weekly_pdf_report_builder import build_weekly_pdf_report
-from app.core.security import decode_access_token
-import os
-import secrets
 
 router = APIRouter()
+
 
 def require_admin_password(
     x_admin_password: str | None,
@@ -26,18 +31,57 @@ def require_admin_password(
         if payload:
             role = payload.get("role")
             username = payload.get("sub")
-            if role == "admin" or username == "admin":
+            if role in ["admin", "developer", "viewer", "user"] or username == "admin":
                 return
 
     configured_password = os.getenv("ADMIN_PASSWORD")
     if not configured_password:
-        return # Skip for now or raise
+        return
 
     if not x_admin_password or not secrets.compare_digest(
         x_admin_password,
         configured_password,
     ):
-        pass # Not blocking if JWT is present, handled above. Wait, if JWT is not present, block.
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid admin password or session token.",
+        )
+
+
+def get_authenticated_user(
+    authorization: str | None,
+    db: Session,
+) -> User | None:
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+        payload = decode_access_token(token)
+        if payload:
+            username = payload.get("sub")
+            if username:
+                return db.query(User).filter(User.username == username).first()
+    return None
+
+
+def resolve_user_station(user: User | None) -> str | None:
+    if not user:
+        return None
+    raw = (user.station or user.username or "").strip().lower()
+    if "kanyonyo" in raw:
+        return "KANYONYO"
+    if "isinya" in raw:
+        return "ISINYA"
+    if "athi" in raw:
+        return "ATHI RIVER"
+    if "gilgil" in raw:
+        return "GILGIL"
+    if "suswa" in raw:
+        return "SUSWA"
+    if "juja" in raw:
+        return "JUJA"
+    if user.station:
+        return user.station.strip().upper()
+    return None
+
 
 @router.get("/reports/weekly/generate")
 async def generate_weekly_report(
@@ -46,10 +90,27 @@ async def generate_weekly_report(
     station: str,
     prepared_by: str,
     approved_by: str,
-    format: str = Query(..., regex="^(excel|pdf)$"),
+    format: str = Query(..., pattern="^(excel|pdf)$"),
     x_admin_password: str | None = Header(default=None),
     authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
 ):
+    require_admin_password(x_admin_password, authorization)
+
+    auth_user = get_authenticated_user(authorization, db)
+    if auth_user and auth_user.role != "admin":
+        assigned_station = resolve_user_station(auth_user)
+        if assigned_station:
+            req_clean = re.sub(r"[^a-z0-9]", "", station.lower())
+            assigned_clean = re.sub(r"[^a-z0-9]", "", assigned_station.lower())
+            if req_clean != assigned_clean and assigned_clean not in req_clean:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Access denied: You are only authorized to generate weekly reports for {assigned_station} station."
+                )
+            station = assigned_station
+            prepared_by = auth_user.full_name or auth_user.username
+
     try:
         start_dt = datetime.strptime(start_date, "%Y-%m-%d")
         end_dt = datetime.strptime(end_date, "%Y-%m-%d")
@@ -61,7 +122,7 @@ async def generate_weekly_report(
 
     dates = [(start_dt + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
     dates_set = set(dates)
-    norm_station = station.lower()
+    norm_station = re.sub(r"[^a-z0-9]", "", station.lower())
     
     # Collect all valid sessions for the station in the date range
     sessions = []
@@ -70,14 +131,14 @@ async def generate_weekly_report(
             session
             and session.report_date in dates_set
             and session.station
-            and session.station.lower() == norm_station
         ):
+            sess_station_norm = re.sub(r"[^a-z0-9]", "", session.station.lower())
             is_mobile = (
                 "mobile" in session.station.lower()
                 or "mobile" in (session.bound or "").lower()
                 or session.sections.get("mobile_report", {}).get("status") == "ready"
             )
-            if not is_mobile:
+            if not is_mobile and (sess_station_norm == norm_station or norm_station in sess_station_norm or sess_station_norm in norm_station):
                 sessions.append(session)
 
     normalized_bounds = {}
@@ -91,8 +152,10 @@ async def generate_weekly_report(
     if not normalized_bounds:
         # Default fallback if no sessions at all
         bounds = ["BOUND A", "BOUND B"]
-        if station.lower() == "juja":
+        if "juja" in station.lower():
             bounds = ["THIKA BOUND", "NAIROBI BOUND"]
+        elif "kanyonyo" in station.lower():
+            bounds = ["NAIROBI BOUND"]
     else:
         bounds = sorted(list(normalized_bounds.keys()))
             
@@ -258,6 +321,8 @@ async def generate_weekly_report(
             media_type=media_type,
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         traceback.print_exc()

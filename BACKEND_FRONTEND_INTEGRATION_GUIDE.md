@@ -2487,3 +2487,21 @@ The `/api/report-sessions/analytics/dashboard` endpoint and frontend `MobileSumm
     - `resetDraft()` resets inputs to `createInitialMobileInputs(userStation)` so clicking "New Report" preserves the officer's assigned station.
     - `STATION_OPTIONS` includes both `"Athi River mobile"` and `"Athiriver mobile"` for complete compatibility.
 
+### 25. Weekly Report Station Locking & Authorization Scoping
+
+- **Problem & Authorization Vulnerability**:
+  - Previously, the Weekly Report generator (`/reports/weekly/new`) and backend endpoint (`/api/reports/weekly/generate`) allowed selecting and generating weekly reports across any station regardless of the logged-in officer's station.
+  - Furthermore, `localStorage.getItem("auth_token")` on the frontend failed to send the active `dnk-auth-token`, and the backend endpoint did not scope report requests against the caller's JWT user identity.
+- **Backend Station Scope Enforcement (`backend/app/routes/weekly_reports.py`)**:
+  - `get_authenticated_user(authorization, db)` resolves the caller's identity via JWT Bearer token.
+  - `resolve_user_station(user)` resolves the canonical station (`KANYONYO`, `ISINYA`, `ATHI RIVER`, `GILGIL`, `SUSWA`, `JUJA`).
+  - For non-admin users belonging to a station, requests for mismatched stations are rejected with `403 Forbidden` (`"Access denied: You are only authorized to generate weekly reports for {assigned_station} station."`).
+  - Automatically locks and overwrites the session query station and `prepared_by` to the authenticated officer's credentials.
+  - Case-insensitive, alphanumeric-normalized session matching (`re.sub(r"[^a-z0-9]", "", ...)`) cleanly matches stored sessions (e.g. `Kanyonyo` vs `KANYONYO`).
+  - Single-bound fallback for Kanyonyo: when no sessions exist, defaults to `["NAIROBI BOUND"]`.
+- **Frontend Station Locking (`frontend/app/reports/weekly/new/page.tsx`)**:
+  - `resolveUserStaticStation(user)` immediately locks the station select for non-admin officers to their assigned station.
+  - Station select and `preparedBy` inputs are disabled with high-contrast locked styling and a `"Station Locked"` indicator badge.
+  - `handleDownload` uses `authHeaders()` from `@/lib/api` to consistently send `Authorization: Bearer <token>` from `dnk-auth-token`.
+
+
