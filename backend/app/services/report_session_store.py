@@ -362,8 +362,17 @@ class ReportSessionStore:
             ):
                 return session
 
-        # Check database / disk sessions
-        for report_id in self.list_report_ids():
+        # Check database directly via fast query if enabled
+        if self.repository.enabled:
+            snapshot = self.repository.find_session_snapshot(report_date, station, bound)
+            if snapshot and isinstance(snapshot, dict):
+                report_id = snapshot.get("report_id")
+                if report_id:
+                    return self._sessions.get(report_id) or self._session_from_metadata_payload(snapshot)
+
+        # Check local disk sessions
+        for path in self.sessions_dir.glob("*.json"):
+            report_id = path.stem
             if report_id in self._sessions:
                 continue
             session = self.get(report_id)
@@ -526,6 +535,49 @@ class ReportSessionStore:
             db_ids = self.repository.list_report_ids()
             return list(dict.fromkeys(db_ids + file_ids))
         return list(dict.fromkeys(sorted(file_ids)))
+
+    def list_all_sessions(self) -> list[tuple[ReportSession, float]]:
+        sessions: list[tuple[ReportSession, float]] = []
+        loaded_ids: set[str] = set()
+
+        if self.repository.enabled:
+            snapshots = self.repository.load_all_session_snapshots()
+            for payload, updated_at in snapshots:
+                if not isinstance(payload, dict):
+                    continue
+                report_id = payload.get("report_id")
+                if not report_id:
+                    continue
+                loaded_ids.add(report_id)
+                session = self._sessions.get(report_id)
+                if not session:
+                    try:
+                        session = self._session_from_metadata_payload(payload)
+                    except Exception:
+                        logger.exception("Failed to load session snapshot for %s", report_id)
+                        continue
+                if isinstance(updated_at, datetime):
+                    mtime = updated_at.timestamp()
+                else:
+                    mtime = float(updated_at or 0)
+                sessions.append((session, mtime))
+
+        # Check local disk for sessions not loaded from DB
+        json_paths = sorted(
+            self.sessions_dir.glob("*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        for path in json_paths:
+            report_id = path.stem
+            if report_id in loaded_ids:
+                continue
+            session = self.get(report_id)
+            if session:
+                mtime = path.stat().st_mtime
+                sessions.append((session, mtime))
+
+        return sessions
 
     def _session_metadata_mtime(self, report_id: str) -> datetime:
         metadata_path = self._session_metadata_path(report_id)

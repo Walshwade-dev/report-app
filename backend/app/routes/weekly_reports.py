@@ -59,20 +59,26 @@ async def generate_weekly_report(
     if (end_dt - start_dt).days != 6:
         raise HTTPException(status_code=400, detail="Weekly report must span exactly 7 days.")
 
-    report_ids = report_session_store.list_report_ids()
     dates = [(start_dt + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
+    dates_set = set(dates)
+    norm_station = station.lower()
     
     # Collect all valid sessions for the station in the date range
     sessions = []
-    for rid in report_ids:
-        try:
-            session = report_session_store.get(rid)
-            if session and session.report_date in dates and session.station and session.station.lower() == station.lower():
-                is_mobile = ("mobile" in session.station.lower() or "mobile" in (session.bound or "").lower() or session.sections.get("mobile_report", {}).get("status") == "ready")
-                if not is_mobile:
-                    sessions.append(session)
-        except:
-            pass
+    for session, _ in report_session_store.list_all_sessions():
+        if (
+            session
+            and session.report_date in dates_set
+            and session.station
+            and session.station.lower() == norm_station
+        ):
+            is_mobile = (
+                "mobile" in session.station.lower()
+                or "mobile" in (session.bound or "").lower()
+                or session.sections.get("mobile_report", {}).get("status") == "ready"
+            )
+            if not is_mobile:
+                sessions.append(session)
 
     normalized_bounds = {}
     for s in sessions:

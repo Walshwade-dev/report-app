@@ -53,9 +53,17 @@ _env_origins: list[str] = [
     if origin.strip()
 ]
 
+_default_production_origins: list[str] = [
+    "https://dnkreport.netlify.app",
+    "http://dnkreport.netlify.app",
+]
+
+_all_origins = list(dict.fromkeys([*_dev_origins, *_env_origins, *_default_production_origins]))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[*_dev_origins, *_env_origins],
+    allow_origins=_all_origins,
+    allow_origin_regex=r"https?://.*\.netlify\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

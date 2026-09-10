@@ -338,34 +338,7 @@ def available_report_sessions(force_refresh: bool = False) -> list[tuple[ReportS
         if now - timestamp < _CACHE_TTL_SECONDS:
             return cached_data
 
-    report_ids = report_session_store.list_report_ids()
-    total_ids = len(report_ids)
-    sessions: list[tuple[ReportSession, float]] = []
-
-    for index, report_id in enumerate(report_ids):
-        try:
-            session = report_session_store.get(report_id)
-            if not session:
-                continue
-
-            summary = report_session_store.report_history_summary(report_id)
-            if summary and "updated_at" in summary:
-                u_at = summary["updated_at"]
-                if isinstance(u_at, datetime):
-                    modified_at = u_at.timestamp()
-                else:
-                    modified_at = float(u_at)
-            else:
-                metadata_path = report_session_store.sessions_dir / f"{report_id}.json"
-                modified_at = (
-                    metadata_path.stat().st_mtime
-                    if metadata_path.exists()
-                    else float(total_ids - index)
-                )
-            sessions.append((session, modified_at))
-        except Exception:
-            logger.exception("Failed to load report session for analytics: %s", report_id)
-
+    sessions = report_session_store.list_all_sessions()
     _SESSIONS_CACHE = (sessions, now)
     return sessions
 

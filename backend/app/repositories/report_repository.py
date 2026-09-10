@@ -184,6 +184,38 @@ class ReportRepository:
 
         return self._run("load_session_snapshot", operation)
 
+    def load_all_session_snapshots(self) -> list[tuple[dict[str, Any], datetime]]:
+        def operation(session: Session) -> list[tuple[dict[str, Any], datetime]]:
+            rows = session.execute(
+                select(Report.state_payload, Report.updated_at)
+                .where(Report.state_payload.is_not(None))
+                .order_by(Report.updated_at.desc())
+            ).all()
+            return [(row[0], row[1]) for row in rows if row[0] is not None]
+
+        return self._run("load_all_session_snapshots", operation) or []
+
+    def find_session_snapshot(
+        self, report_date: str, station: str, bound: str
+    ) -> dict[str, Any] | None:
+        def operation(session: Session) -> dict[str, Any] | None:
+            norm_station = (station or "").strip().lower()
+            norm_bound = (bound or "").strip().lower()
+            row = session.execute(
+                select(Report.state_payload)
+                .where(
+                    Report.report_date == report_date,
+                    func.lower(func.coalesce(Report.station, "")) == norm_station,
+                    func.lower(func.coalesce(Report.bound_name, "")) == norm_bound,
+                    Report.state_payload.is_not(None),
+                )
+                .order_by(Report.updated_at.desc())
+                .limit(1)
+            ).first()
+            return row[0] if row else None
+
+        return self._run("find_session_snapshot", operation)
+
     def list_report_ids(self) -> list[str]:
         def operation(session: Session) -> list[str]:
             rows = session.execute(
