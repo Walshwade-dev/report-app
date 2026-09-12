@@ -77,6 +77,31 @@ class TestWeeklyStationLocking(unittest.TestCase):
             self.assertEqual(response.headers["content-type"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             self.assertIn("ATHI RIVER", response.headers.get("content-disposition", ""))
 
+    def test_weekly_report_pdf_generation_succeeds(self):
+        mock_user = User(username="Test Officer", full_name="Juja Officer", role="user", station="Juja")
+        token = create_access_token(data={"sub": mock_user.username, "role": mock_user.role})
+
+        client = TestClient(app)
+        from unittest.mock import patch
+        with patch("app.routes.weekly_reports.get_authenticated_user", return_value=mock_user):
+            response = client.get(
+                "/api/reports/weekly/generate",
+                params={
+                    "start_date": "2026-09-01",
+                    "end_date": "2026-09-07",
+                    "station": "JUJA",
+                    "prepared_by": "Juja Officer",
+                    "approved_by": "Faith Njani",
+                    "format": "pdf",
+                },
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.headers["content-type"], "application/pdf")
+            self.assertIn(".pdf", response.headers.get("content-disposition", ""))
+            self.assertTrue(response.content.startswith(b"%PDF"))
+
 
 if __name__ == "__main__":
     unittest.main()
+

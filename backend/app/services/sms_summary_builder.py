@@ -11,6 +11,7 @@ from app.services.daily_summary_processor import (
 )
 from app.services.overloaded_summary import count_valid_permit_vehicles
 from app.services.mobile_report_processor import summarize_mobile_report
+from app.services.mobile_excel_report_builder import _manual_shifts, _plain_int
 
 def format_date(date_str: str) -> str:
     try:
@@ -196,16 +197,46 @@ def build_mobile_sms_summary(session: ReportSession) -> str:
         "—"
     ).strip().upper()
     
-    # Calculate kms
-    start = mobile_inputs.get("mileage_start") or session.manual_inputs.get("mileage_start")
-    end = mobile_inputs.get("mileage_end") or session.manual_inputs.get("mileage_end")
+    # Calculate kms across shifts
     kms_val = 0
+    has_shift_kms = False
     try:
-        if start is not None and end is not None:
-            kms_val = int(float(str(end).replace(",", ""))) - int(float(str(start).replace(",", "")))
+        shifts = _manual_shifts(session)
+        if shifts:
+            for shift in shifts[:2]:
+                start_num = _plain_int(
+                    shift.get("mileage_start")
+                    or shift.get("startMileage")
+                    or shift.get("start_mileage")
+                )
+                end_num = _plain_int(
+                    shift.get("mileage_end")
+                    or shift.get("stopMileage")
+                    or shift.get("stop_mileage")
+                    or shift.get("mileage_stop")
+                )
+                if start_num is not None and end_num is not None:
+                    diff = end_num - start_num
+                    if diff > 0:
+                        kms_val += diff
+                        has_shift_kms = True
+                    elif diff == 0:
+                        has_shift_kms = True
     except Exception:
         pass
-    
+
+    if not has_shift_kms:
+        start = mobile_inputs.get("mileage_start") or session.manual_inputs.get("mileage_start")
+        end = mobile_inputs.get("mileage_end") or session.manual_inputs.get("mileage_end")
+        try:
+            if start is not None and end is not None:
+                diff = int(float(str(end).replace(",", ""))) - int(float(str(start).replace(",", "")))
+                if diff >= 0:
+                    kms_val = diff
+                    has_shift_kms = True
+        except Exception:
+            pass
+
     if kms_val <= 0:
         # Fallback to direct field
         try:

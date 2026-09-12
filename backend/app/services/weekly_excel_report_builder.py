@@ -16,10 +16,10 @@ def _write_table_to_sheet(worksheet, start_row: int, title: str, columns: list[s
     worksheet.merge_cells(start_row=start_row, start_column=1, end_row=start_row, end_column=len(columns))
     title_cell = worksheet.cell(row=start_row, column=1)
     title_cell.value = title
-    title_cell.font = Font(name="Calibri", bold=True, size=14)
+    title_cell.font = Font(name="Arial", bold=True, size=12)
     title_cell.alignment = Alignment(horizontal="center", vertical="center")
     title_cell.fill = slate_fill
-    worksheet.row_dimensions[start_row].height = 30
+    worksheet.row_dimensions[start_row].height = 28
     
     for c in range(1, len(columns) + 1):
         cell = worksheet.cell(row=start_row, column=c)
@@ -28,8 +28,8 @@ def _write_table_to_sheet(worksheet, start_row: int, title: str, columns: list[s
     # Headers
     header_row_1 = start_row + 1
     header_row_2 = start_row + 2
-    worksheet.row_dimensions[header_row_1].height = 37.5
-    worksheet.row_dimensions[header_row_2].height = 61.5
+    worksheet.row_dimensions[header_row_1].height = 35
+    worksheet.row_dimensions[header_row_2].height = 65
     for col_idx, col_name in enumerate(columns, start=1):
         cell = worksheet.cell(row=header_row_1, column=col_idx)
         if col_idx < 18:
@@ -41,13 +41,13 @@ def _write_table_to_sheet(worksheet, start_row: int, title: str, columns: list[s
             cell.value = "Exemption Permits"
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             
-        cell.font = Font(name="Calibri", bold=True, size=14)
+        cell.font = Font(name="Arial", bold=True, size=11)
 
-    sub_headers = ["Not Weighd (E)", "Weighed(F)", "Total"]
+    sub_headers = ["Not Weighed\n(E)", "Weighed\n(F)", "Total"]
     for i, sub_header in enumerate(sub_headers):
         cell = worksheet.cell(row=header_row_2, column=18 + i)
         cell.value = sub_header
-        cell.font = Font(name="Calibri", bold=True, size=14)
+        cell.font = Font(name="Arial", bold=True, size=11)
         cell.alignment = Alignment(textRotation=90, horizontal="center", vertical="center", wrap_text=True)
 
     df = pd.DataFrame(data, columns=columns)
@@ -71,6 +71,7 @@ def _write_table_to_sheet(worksheet, start_row: int, title: str, columns: list[s
     current_row = header_row_2 + 1
     for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=False), start=current_row):
         is_total_row = (r_idx == current_row + len(df) - 1)
+        worksheet.row_dimensions[r_idx].height = 20
         for c_idx, value in enumerate(row, start=1):
             cell = worksheet.cell(row=r_idx, column=c_idx)
             
@@ -89,16 +90,16 @@ def _write_table_to_sheet(worksheet, start_row: int, title: str, columns: list[s
             cell.value = cell_value
             cell.alignment = Alignment(horizontal="center", vertical="center")
             if is_total_row:
-                cell.font = Font(name="Calibri", bold=True, size=14)
+                cell.font = Font(name="Arial", bold=True, size=11)
                 cell.fill = slate_fill
                 cell.border = Border(top=thick_side, bottom=thick_side, left=thin_side, right=thin_side)
             else:
                 cell.border = thin_border
                 if c_idx == 1:
-                    cell.font = Font(name="Calibri", bold=True, size=14)
+                    cell.font = Font(name="Arial", bold=True, size=11)
                     cell.fill = slate_fill
                 else:
-                    cell.font = Font(name="Calibri", size=14)
+                    cell.font = Font(name="Arial", size=11)
                     # Apply yellow only to H, C, Q, T (which correspond to c_idx 2, 3, 4, 9)
                     if c_idx in [2, 3, 4, 9]:
                         cell.fill = yellow_fill
@@ -130,14 +131,14 @@ def build_weekly_excel_report(
         "Total Traffic Census =(K)", "Total Traffic (T) = (Q+X+K+E)", "Total Overloaded (Y)=(A+G+P)",
         "Impounded & Prohibited (P) = (Z+R)", "Warned (A)", "Prohibited & Charged (Z)",
         "Special Released (G)", "Redistributed (R)", "Cases Cleared in Court (B)",
-        "Transgressions (L)", "Not Weighd (E)", "Weighed(F)", "Total"
+        "Transgressions\n(L)", "Not Weighed\n(E)", "Weighed\n(F)", "Total"
     ]
 
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        # Create a dummy DataFrame to initialize sheet
-        pd.DataFrame().to_excel(writer, index=False, startrow=0, header=False, sheet_name="JUJA WB WEEKLY REPORT ")
-        worksheet = writer.sheets["JUJA WB WEEKLY REPORT "]
+        sheet_title = f"{station.upper()} WEEKLY REPORT"[:31]
+        pd.DataFrame().to_excel(writer, index=False, startrow=0, header=False, sheet_name=sheet_title)
+        worksheet = writer.sheets[sheet_title]
         
         # Add Logo
         logo_path = os.path.join(os.path.dirname(__file__), "../assets/logo.png")
@@ -157,26 +158,26 @@ def build_weekly_excel_report(
         current_row = _write_table_to_sheet(worksheet, current_row, title_combined, columns, weekly_data_combined)
 
         # Column widths
-        worksheet.column_dimensions["A"].width = 15
+        worksheet.column_dimensions["A"].width = 14
         for col_letter in [chr(i) for i in range(ord('B'), ord('U'))]:
-            worksheet.column_dimensions[col_letter].width = 12
+            worksheet.column_dimensions[col_letter].width = 11
 
-        # Signatures
-        prep_cell = worksheet.cell(row=current_row + 2, column=1)
+        # Signatures in rows and columns
+        worksheet.merge_cells(start_row=current_row + 1, start_column=1, end_row=current_row + 1, end_column=12)
+        prep_cell = worksheet.cell(row=current_row + 1, column=1)
         prep_cell.value = f"PREPARED BY: {prepared_by.upper()}"
-        prep_cell.font = Font(name="Calibri", bold=True, size=14)
+        prep_cell.font = Font(name="Arial", bold=True, size=10)
+        prep_cell.alignment = Alignment(horizontal="left", vertical="center")
         
-        app_cell = worksheet.cell(row=current_row + 4, column=1)
+        worksheet.merge_cells(start_row=current_row + 3, start_column=1, end_row=current_row + 3, end_column=12)
+        app_cell = worksheet.cell(row=current_row + 3, column=1)
         app_cell.value = f"APPROVED BY: {approved_by.upper()}"
-        app_cell.font = Font(name="Calibri", bold=True, size=14)
+        app_cell.font = Font(name="Arial", bold=True, size=10)
+        app_cell.alignment = Alignment(horizontal="left", vertical="center")
         
         # Footer Table
-        footer_row = current_row + 6
+        footer_row = current_row + 5
         slate_fill = PatternFill(start_color="EEEEEE", end_color="EEEEEE", fill_type="solid")
-        thin_border = Border(
-            left=Side(style='thin'), right=Side(style='thin'),
-            top=Side(style='thin'), bottom=Side(style='thin')
-        )
         
         worksheet.merge_cells(start_row=footer_row, start_column=1, end_row=footer_row, end_column=8)
         worksheet.merge_cells(start_row=footer_row, start_column=9, end_row=footer_row, end_column=14)
@@ -191,6 +192,8 @@ def build_weekly_excel_report(
         f3 = worksheet.cell(row=footer_row, column=15)
         f3.value = f"FOR DATES: {start_date} TO {end_date}"
         
+        worksheet.row_dimensions[footer_row].height = 22
+
         for c in range(1, 21):
             cell = worksheet.cell(row=footer_row, column=c)
             cell.fill = slate_fill
@@ -201,8 +204,22 @@ def build_weekly_excel_report(
                 right=Side(style='thin') if c == 20 else None
             )
             if c in [1, 9, 15]:
-                cell.font = Font(name="Calibri", bold=True, size=14)
+                cell.font = Font(name="Arial", bold=True, size=10)
                 cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        # Page setup: Fit all 20 columns to 1 page width landscape
+        worksheet.page_setup.orientation = worksheet.ORIENTATION_LANDSCAPE
+        worksheet.page_setup.paperSize = worksheet.PAPERSIZE_A4
+        worksheet.page_setup.fitToPage = True
+        worksheet.page_setup.fitToWidth = 1
+        worksheet.page_setup.fitToHeight = 0
+        worksheet.sheet_properties.pageSetUpPr.fitToPage = True
+
+        worksheet.page_margins.left = 0.25
+        worksheet.page_margins.right = 0.25
+        worksheet.page_margins.top = 0.25
+        worksheet.page_margins.bottom = 0.25
 
     buffer.seek(0)
     return buffer
+

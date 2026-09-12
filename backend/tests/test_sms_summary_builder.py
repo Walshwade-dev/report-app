@@ -81,6 +81,57 @@ def test_sms_summary_mobile():
     assert "By:-ANASTASHA KENDA." in summary
 
 
+def test_sms_summary_mobile_two_shifts_sums_kms():
+    session = ReportSession(
+        report_id="test_mobile_two_shifts",
+        report_date="2026-06-23",
+        station="Juja mobile",
+        bound="Mobile 2",
+        weighbridge_name="Juja mobile",
+        prepared_by="ANASTASHA KENDA",
+    )
+    session.manual_inputs["mobile_report"] = {
+        "route": "JUJA-KIMBO-RUIRU",
+        "mobile_vehicle": "KDS042Z",
+        "shifts": [
+            {
+                "label": "Shift 1",
+                "mileage_start": "100",
+                "mileage_end": "250",
+            },
+            {
+                "label": "Shift 2",
+                "mileage_start": "250",
+                "mileage_end": "420",
+            },
+        ],
+    }
+    summary = build_mobile_sms_summary(session)
+    # Shift 1: 250 - 100 = 150 KMS, Shift 2: 420 - 250 = 170 KMS. Total = 320 KMS
+    assert "Kilometers covered=320KMS" in summary
+
+
+def test_sms_summary_mobile_two_flat_inputs_sums_kms():
+    session = ReportSession(
+        report_id="test_mobile_two_flat",
+        report_date="2026-06-23",
+        station="Juja mobile",
+        bound="Mobile 2",
+        weighbridge_name="Juja mobile",
+        prepared_by="ANASTASHA KENDA",
+    )
+    session.manual_inputs["mobile_report"] = {
+        "route": "JUJA-KIMBO-RUIRU",
+        "mobile_vehicle": "KDS042Z",
+        "mileage_start": "100",
+        "mileage_end": "250",
+        "shift_two_start_mileage": "250",
+        "shift_two_stop_mileage": "420",
+    }
+    summary = build_mobile_sms_summary(session)
+    assert "Kilometers covered=320KMS" in summary
+
+
 def test_sms_summary_metadata_fallback():
     session = ReportSession(
         report_id="test_static_id_fallback",
