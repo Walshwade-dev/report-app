@@ -245,9 +245,9 @@ async def generate_weekly_report(
                         "Special Released (G)": summary.get("special_release_g", 0),
                         "Redistributed (R)": summary.get("vehicles_charged_but_redistributed_r", 0),
                         "Cases Cleared in Court (B)": summary.get("cases_cleared_in_court_b", 0),
-                        "Transgressions (L)": summary.get("transgressions_l", 0),
-                        "Not Weighd (E)": summary.get("exemption_permits_not_weighed_e", 0),
-                        "Weighed(F)": summary.get("exemption_permits_weighed_f", 0),
+                        "Transgressions\n(L)": summary.get("transgressions_l", 0),
+                        "Not Weighed\n(E)": summary.get("exemption_permits_not_weighed_e", 0),
+                        "Weighed\n(F)": summary.get("exemption_permits_weighed_f", 0),
                         "Total": summary.get("exemption_permits_total", 0)
                     })
                 except Exception:
