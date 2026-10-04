@@ -343,47 +343,144 @@ class ReportSessionStore:
             "values": daily_summary,
         }
 
+    @staticmethod
+    def _classify_station_code(station_name: str | None) -> str | None:
+        if not station_name:
+            return None
+        name = station_name.lower()
+        if "juja" in name:
+            return "Juja"
+        if "kanyonyo" in name:
+            return "Kanyonyo"
+        if "athi" in name:
+            return "Athi River"
+        if "gilgil" in name:
+            return "Gilgil"
+        if "isinya" in name:
+            return "Isinya"
+        if "suswa" in name:
+            return "Suswa"
+        return None
+
+    @staticmethod
+    def _is_bound_a(station_code: str | None, bound_name: str | None) -> bool:
+        if not bound_name:
+            return True
+        bound = bound_name.lower()
+        if not station_code:
+            return "bound a" in bound or "incoming" in bound or "thika" in bound or "mombasa" in bound or "mwingi" in bound or "kajiado" in bound or "narok" in bound
+
+        station_lower = station_code.lower()
+        if "juja" in station_lower:
+            return "thika" in bound or "bound a" in bound or "incoming" in bound
+        elif "athi" in station_lower:
+            return "mombasa" in bound or "bound a" in bound or "incoming" in bound
+        elif "gilgil" in station_lower:
+            return "nairobi" in bound or "bound a" in bound or "incoming" in bound
+        elif "kanyonyo" in station_lower:
+            return True
+        elif "isinya" in station_lower:
+            return "kajiado" in bound or "bound a" in bound or "incoming" in bound
+        elif "suswa" in station_lower:
+            return "narok" in bound or "bound a" in bound or "incoming" in bound
+
+        return "bound a" in bound or "incoming" in bound or "thika" in bound or "mombasa" in bound or "mwingi" in bound or "kajiado" in bound or "narok" in bound
+
+    def _slot_matches(
+        self,
+        session: ReportSession,
+        report_date: str,
+        station: str,
+        bound: str,
+    ) -> bool:
+        if session.report_date != report_date:
+            return False
+
+        s_st = (session.station or session.weighbridge_name or "").strip().lower()
+        q_st = (station or "").strip().lower()
+
+        st_match = (s_st == q_st) or (s_st in q_st) or (q_st in s_st)
+        if not st_match:
+            cs_s = self._classify_station_code(s_st)
+            cs_q = self._classify_station_code(q_st)
+            st_match = bool(cs_s and cs_q and cs_s.lower() == cs_q.lower())
+
+        if not st_match:
+            return False
+
+        s_bd = (session.bound or "").strip().lower()
+        q_bd = (bound or "").strip().lower()
+        if s_bd == q_bd:
+            return True
+
+        is_mobile = "mobile" in s_st or "mobile" in q_st or "mobile" in s_bd or "mobile" in q_bd
+        if is_mobile:
+            s_slot = "mobile_2" if ("2" in s_bd or "two" in s_bd) else "mobile_1"
+            q_slot = "mobile_2" if ("2" in q_bd or "two" in q_bd) else "mobile_1"
+            return s_slot == q_slot
+        else:
+            st_code = self._classify_station_code(q_st) or self._classify_station_code(s_st)
+            return self._is_bound_a(st_code, s_bd) == self._is_bound_a(st_code, q_bd)
+
     def find_by_slot(
         self,
         report_date: str,
         station: str,
         bound: str,
     ) -> ReportSession | None:
-        """Find an existing session matching the given date/station/bound slot."""
-        norm_station = (station or "").strip().lower()
-        norm_bound = (bound or "").strip().lower()
+        """Find the best existing session matching the given date/station/bound slot."""
+        candidates: list[ReportSession] = []
+        seen_ids: set[str] = set()
 
         # Check in-memory sessions first
         for session in self._sessions.values():
-            if (
-                session.report_date == report_date
-                and (session.station or "").strip().lower() == norm_station
-                and (session.bound or "").strip().lower() == norm_bound
-            ):
-                return session
+            if session.report_id not in seen_ids and self._slot_matches(session, report_date, station, bound):
+                candidates.append(session)
+                seen_ids.add(session.report_id)
+
+        # Check local disk sessions
+        for path in self.sessions_dir.glob("*.json"):
+            report_id = path.stem
+            if report_id in seen_ids:
+                continue
+            session = self.get(report_id)
+            if session and self._slot_matches(session, report_date, station, bound):
+                candidates.append(session)
+                seen_ids.add(session.report_id)
 
         # Check database directly via fast query if enabled
         if self.repository.enabled:
             snapshot = self.repository.find_session_snapshot(report_date, station, bound)
             if snapshot and isinstance(snapshot, dict):
                 report_id = snapshot.get("report_id")
-                if report_id:
-                    return self._sessions.get(report_id) or self._session_from_metadata_payload(snapshot)
+                if report_id and report_id not in seen_ids:
+                    session = self._sessions.get(report_id) or self._session_from_metadata_payload(snapshot)
+                    if session and self._slot_matches(session, report_date, station, bound):
+                        candidates.append(session)
+                        seen_ids.add(session.report_id)
 
-        # Check local disk sessions
-        for path in self.sessions_dir.glob("*.json"):
-            report_id = path.stem
-            if report_id in self._sessions:
-                continue
-            session = self.get(report_id)
-            if session and (
-                session.report_date == report_date
-                and (session.station or "").strip().lower() == norm_station
-                and (session.bound or "").strip().lower() == norm_bound
-            ):
-                return session
+        if not candidates:
+            return None
 
-        return None
+        # Rank candidates:
+        # 1. Final report built
+        # 2. Number of ready sections
+        # 3. Latest disk modification time
+        def session_rank(s: ReportSession) -> tuple[int, int, float]:
+            ready_count = sum(
+                1 for sec in (s.sections or {}).values()
+                if isinstance(sec, dict) and sec.get("status") == "ready"
+            )
+            has_built = 1 if getattr(s, "final_report_status", None) == "ready" else 0
+            json_file = self.sessions_dir / f"{s.report_id}.json"
+            try:
+                mtime = json_file.stat().st_mtime if json_file.exists() else 0.0
+            except Exception:
+                mtime = 0.0
+            return (has_built, ready_count, mtime)
+
+        candidates.sort(key=session_rank, reverse=True)
+        return candidates[0]
 
     def reset_session(self, report_id: str) -> ReportSession:
         """Reset a session to its initial state, clearing all uploads and outputs."""
@@ -423,6 +520,7 @@ class ReportSessionStore:
         weighbridge_name: str | None = None,
         prepared_by: str | None = None,
         confirmed_by: str | None = None,
+        reset_existing: bool = False,
     ) -> ReportSession:
         # Check for an existing session in the same slot
         existing = self.find_by_slot(report_date, station, bound)
@@ -435,10 +533,15 @@ class ReportSessionStore:
             )
             existing = None
         if existing:
-            session = self.reset_session(existing.report_id)
+            if reset_existing:
+                session = self.reset_session(existing.report_id)
+            else:
+                session = existing
             # Update metadata fields that may have changed
-            session.prepared_by = prepared_by
-            session.confirmed_by = confirmed_by
+            if prepared_by is not None:
+                session.prepared_by = prepared_by
+            if confirmed_by is not None:
+                session.confirmed_by = confirmed_by
             session.weighbridge_name = weighbridge_name or station
             self._save_metadata(session)
             return session

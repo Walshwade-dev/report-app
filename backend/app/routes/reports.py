@@ -59,6 +59,7 @@ class ReportSessionCreate(BaseModel):
     weighbridge_name: str | None = None
     prepared_by: str | None = None
     confirmed_by: str | None = None
+    reset_existing: bool = False
 
 
 class ManualInputsUpdate(BaseModel):
@@ -447,6 +448,7 @@ async def create_report_session(payload: ReportSessionCreate, current_user: User
         weighbridge_name=station,
         prepared_by=payload.prepared_by,
         confirmed_by=payload.confirmed_by,
+        reset_existing=payload.reset_existing,
     )
     invalidate_sessions_cache()
     return serialize_session(session)
@@ -525,6 +527,19 @@ async def list_report_sessions(
         items.append(payload)
 
     return items
+
+
+@router.get("/report-sessions/slot")
+@router.get("/report-sessions/by-slot")
+async def get_report_session_by_slot(
+    report_date: str = Query(...),
+    station: str = Query(...),
+    bound: str = Query(...),
+):
+    session = report_session_store.find_by_slot(report_date, station, bound)
+    if not session:
+        raise HTTPException(status_code=404, detail="Report session not found for slot")
+    return serialize_session(session)
 
 
 @router.get("/report-sessions/{report_id}")
