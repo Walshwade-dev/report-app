@@ -1254,6 +1254,18 @@ def _add_mobile_title_header(section, session) -> None:
 
 
 def build_mobile_word_report(session) -> io.BytesIO:
+    if "mobile_report" not in session.dataframes:
+        sec = session.sections.get("mobile_report") or {}
+        recs = sec.get("records") or sec.get("preview")
+        if recs and isinstance(recs, list) and len(recs) > 0:
+            try:
+                df = pd.DataFrame(recs)
+                if "date_time" in df.columns:
+                    df["date_time"] = pd.to_datetime(df["date_time"], errors="coerce")
+                session.dataframes["mobile_report"] = df
+            except Exception:
+                pass
+
     if (
         "mobile_report" not in session.dataframes
         or session.sections.get("mobile_report", {}).get("status") != "ready"

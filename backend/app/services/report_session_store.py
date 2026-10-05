@@ -263,6 +263,33 @@ class ReportSessionStore:
                 if isinstance(df, pd.DataFrame):
                     session.dataframes[section] = df
 
+        # Restore dataframes from persisted records or previews if disk pickles are absent
+        for section, s_state in session.sections.items():
+            if section not in session.dataframes and isinstance(s_state, dict):
+                recs = s_state.get("records") or s_state.get("preview")
+                if recs and isinstance(recs, list) and len(recs) > 0:
+                    try:
+                        df_restored = pd.DataFrame(recs)
+                        if section in {"mobile_report", "mobile_report_raw"} and "date_time" in df_restored.columns:
+                            df_restored["date_time"] = pd.to_datetime(df_restored["date_time"], errors="coerce")
+                        session.dataframes[section] = df_restored
+                    except Exception:
+                        pass
+
+        # Also restore mobile_report_raw if stored in extra/raw_records
+        if "mobile_report_raw" not in session.dataframes:
+            mob_sec = session.sections.get("mobile_report", {})
+            if isinstance(mob_sec, dict):
+                raw_recs = mob_sec.get("raw_records")
+                if raw_recs and isinstance(raw_recs, list):
+                    try:
+                        df_raw = pd.DataFrame(raw_recs)
+                        if "date_time" in df_raw.columns:
+                            df_raw["date_time"] = pd.to_datetime(df_raw["date_time"], errors="coerce")
+                        session.dataframes["mobile_report_raw"] = df_raw
+                    except Exception:
+                        pass
+
         if session.sections.get("daily_summary", {}).get("status") != "ready":
             self._refresh_daily_summary_status(session)
 
@@ -993,6 +1020,18 @@ class ReportSessionStore:
                 for record in preview_df.to_dict(orient="records")
             ],
         }
+
+        # Store full records for essential analytics and cross-sectional sections in section_state
+        # so they persist in PostgreSQL state_payload even when ephemeral disk is wiped
+        if section in {"mobile_report", "mobile_report_raw", "overloaded", "impounded_prohibited", "wideload"}:
+            full_df = dataframe.astype(object).where(pd.notnull(dataframe), None)
+            section_state["records"] = [
+                {
+                    key: _json_safe_value(value)
+                    for key, value in record.items()
+                }
+                for record in full_df.to_dict(orient="records")
+            ]
 
         if section in {"daily_hour", "wideload", "impounded_prohibited"}:
             section_state["preview_url"] = (

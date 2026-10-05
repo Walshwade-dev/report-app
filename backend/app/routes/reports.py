@@ -1349,6 +1349,16 @@ async def get_dms_performance(date: str | None = None, station: str | None = Non
                             )
                     except Exception:
                         records = None
+            if records is None or getattr(records, "empty", True):
+                sec = session.sections.get("mobile_report") or {}
+                recs = sec.get("records") or sec.get("preview")
+                if recs and isinstance(recs, list) and len(recs) > 0:
+                    try:
+                        records = pd.DataFrame(recs)
+                        if "date_time" in records.columns:
+                            records["date_time"] = pd.to_datetime(records["date_time"], errors="coerce")
+                    except Exception:
+                        records = None
 
         shift_weighed = [0] * len(shifts)
         shift_charged = [0] * len(shifts)
@@ -1811,12 +1821,19 @@ async def upload_mobile_report_file(
         )
         summary = summarize_mobile_report(records)
 
+        raw_records = [
+            {
+                key: report_session_store._json_safe_value(value)
+                for key, value in record.items()
+            }
+            for record in raw_df.astype(object).where(pd.notnull(raw_df), None).to_dict(orient="records")
+        ]
         updated = report_session_store.set_section_ready(
             report_id,
             "mobile_report",
             records,
             filename=filename,
-            extra={"summary": summary},
+            extra={"summary": summary, "raw_records": raw_records},
         )
         payload = serialize_session(updated)
         payload["mobile_report"] = mobile_report_response(

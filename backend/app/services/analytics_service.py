@@ -390,13 +390,61 @@ def get_analytics_details(
         if not patrol_route_name or patrol_route_name in ["UNKNOWN", "NONE", "N/A", "-"]:
             patrol_route_name = f"Mobile Patrol ({s.bound or 'Corridor'})"
 
-        df = s.dataframes.get("mobile_report")
-        if df is None:
-            df = _read_processed_pickle(storage_root, s.report_id, "mobile_report")
+        sec_mob = s.sections.get("mobile_report") or {}
+        mob_summary = sec_mob.get("summary") or {}
 
+        df = s.dataframes.get("mobile_report")
+        if df is None or getattr(df, "empty", True):
+            df = _read_processed_pickle(storage_root, s.report_id, "mobile_report")
+        if df is None or getattr(df, "empty", True):
+            recs = sec_mob.get("records")
+            if recs and isinstance(recs, list) and len(recs) > 0:
+                try:
+                    df = pd.DataFrame(recs)
+                except Exception:
+                    df = None
+
+        is_fallback_preview = False
+        if df is None or getattr(df, "empty", True):
+            preview = sec_mob.get("preview")
+            if preview and isinstance(preview, list) and len(preview) > 0:
+                try:
+                    df = pd.DataFrame(preview)
+                    is_fallback_preview = True
+                except Exception:
+                    df = None
+
+        has_summary_counts = bool(
+            mob_summary and (mob_summary.get("total_trucks_weighed") or mob_summary.get("total_records") or sec_mob.get("rows"))
+        )
+
+        sess_weighed = int(mob_summary.get("total_trucks_weighed") or mob_summary.get("total_records") or sec_mob.get("rows") or 0)
+        sess_charged = int(mob_summary.get("charged_trucks") or 0)
+        sess_warned = int(mob_summary.get("warned_trucks") or 0)
+        sess_legal = max(sess_weighed - sess_charged - sess_warned, 0)
+
+        df_row_count = len(df) if df is not None and not df.empty else 0
+        is_partial_data = has_summary_counts and (df is None or df.empty or sess_weighed > df_row_count)
+
+        # 1. Update session-level totals and operational patrol route aggregates if partial data
+        if is_partial_data:
+            total_mobile_weighed += sess_weighed
+            total_mobile_charged += sess_charged
+            total_mobile_warned += sess_warned
+            total_mobile_legal += sess_legal
+
+            r_entry = route_aggregates[patrol_route_name]
+            r_entry["route"] = patrol_route_name
+            r_entry["routeType"] = "Patrol Operation"
+            r_entry["totalWeighed"] += sess_weighed
+            r_entry["datesActive"].add(s.report_date)
+            r_entry["chargedCount"] += sess_charged
+            r_entry["warnedCount"] += sess_warned
+            r_entry["legalCount"] += sess_legal
+
+        # 2. Extract granular vehicle records if rows are present (full dataframe or fallback preview)
         if df is not None and not df.empty:
             for _, row in df.iterrows():
-                total_mobile_weighed += 1
                 remarks = str(row.get("remarks") or "").strip().upper()
                 diff_kg = float(row.get("gvw_difference_kg") or 0)
                 cargo_clean = _clean_cargo_name(row.get("cargo"))
@@ -410,27 +458,32 @@ def get_analytics_details(
                 is_charged = "CHARG" in remarks or diff_kg > 2000
                 is_warned = "WARN" in remarks or (0 < diff_kg <= 2000)
 
-                if is_charged:
-                    total_mobile_charged += 1
-                elif is_warned:
-                    total_mobile_warned += 1
-                else:
-                    total_mobile_legal += 1
+                # Only increment overall counters and patrol route counts if not already counted via summary
+                if not is_partial_data:
+                    total_mobile_weighed += 1
+                    if is_charged:
+                        total_mobile_charged += 1
+                    elif is_warned:
+                        total_mobile_warned += 1
+                    else:
+                        total_mobile_legal += 1
 
-                # Operational patrol route
-                r_entry = route_aggregates[patrol_route_name]
-                r_entry["route"] = patrol_route_name
-                r_entry["routeType"] = "Patrol Operation"
-                r_entry["totalWeighed"] += 1
-                r_entry["datesActive"].add(rec_date)
-                if is_charged:
-                    r_entry["chargedCount"] += 1
-                    if cargo_clean != "UNKNOWN":
-                        r_entry["cargosCharged"][cargo_clean] += 1
-                elif is_warned:
-                    r_entry["warnedCount"] += 1
-                else:
-                    r_entry["legalCount"] += 1
+                    r_entry = route_aggregates[patrol_route_name]
+                    r_entry["route"] = patrol_route_name
+                    r_entry["routeType"] = "Patrol Operation"
+                    r_entry["totalWeighed"] += 1
+                    r_entry["datesActive"].add(rec_date)
+                    if is_charged:
+                        r_entry["chargedCount"] += 1
+                    elif is_warned:
+                        r_entry["warnedCount"] += 1
+                    else:
+                        r_entry["legalCount"] += 1
+
+                # Cargos charged for patrol route
+                if is_charged and cargo_clean != "UNKNOWN":
+                    r_entry = route_aggregates[patrol_route_name]
+                    r_entry["cargosCharged"][cargo_clean] += 1
 
                 # Specific vehicle corridor
                 if origin and dest and origin not in ["UNKNOWN", "NAN"] and dest not in ["UNKNOWN", "NAN"]:
@@ -509,14 +562,24 @@ def get_analytics_details(
             s.sections.get("daily_hour", {}).get("status") == "ready"
             or "overloaded" in s.dataframes
             or (storage_root / "processed" / s.report_id / "overloaded.pkl").exists()
+            or bool(s.sections.get("overloaded", {}).get("records"))
+            or bool(s.sections.get("overloaded", {}).get("preview"))
         )
         if not is_static:
             continue
 
         for pkl_file in ["overloaded", "impounded_prohibited"]:
             sdf = s.dataframes.get(pkl_file)
-            if sdf is None:
+            if sdf is None or getattr(sdf, "empty", True):
                 sdf = _read_processed_pickle(storage_root, s.report_id, pkl_file)
+            if sdf is None or getattr(sdf, "empty", True):
+                sec = s.sections.get(pkl_file) or {}
+                s_recs = sec.get("records") or sec.get("preview")
+                if s_recs and isinstance(s_recs, list) and len(s_recs) > 0:
+                    try:
+                        sdf = pd.DataFrame(s_recs)
+                    except Exception:
+                        sdf = None
 
             if sdf is not None and not sdf.empty:
                 for _, row in sdf.iterrows():
