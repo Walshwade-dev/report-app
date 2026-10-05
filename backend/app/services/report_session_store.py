@@ -398,27 +398,55 @@ class ReportSessionStore:
 
         s_st = (session.station or session.weighbridge_name or "").strip().lower()
         q_st = (station or "").strip().lower()
-
-        st_match = (s_st == q_st) or (s_st in q_st) or (q_st in s_st)
-        if not st_match:
-            cs_s = self._classify_station_code(s_st)
-            cs_q = self._classify_station_code(q_st)
-            st_match = bool(cs_s and cs_q and cs_s.lower() == cs_q.lower())
-
-        if not st_match:
-            return False
-
         s_bd = (session.bound or "").strip().lower()
         q_bd = (bound or "").strip().lower()
-        if s_bd == q_bd:
-            return True
 
-        is_mobile = "mobile" in s_st or "mobile" in q_st or "mobile" in s_bd or "mobile" in q_bd
-        if is_mobile:
-            s_slot = "mobile_2" if ("2" in s_bd or "two" in s_bd) else "mobile_1"
-            q_slot = "mobile_2" if ("2" in q_bd or "two" in q_bd) else "mobile_1"
+        s_is_mobile = (
+            self._session_report_type(session) == "mobile_weighbridge"
+            or "mobile" in s_st
+            or "mobile" in s_bd
+            or s_bd in ("mobile 1", "mobile 2", "mobile_1", "mobile_2", "shift a", "shift b")
+        )
+        q_is_mobile = (
+            "mobile" in q_st
+            or "mobile" in q_bd
+            or q_bd in ("mobile 1", "mobile 2", "mobile_1", "mobile_2", "shift a", "shift b")
+        )
+
+        # Static and mobile sessions must never match each other
+        if s_is_mobile != q_is_mobile:
+            return False
+
+        if s_is_mobile and q_is_mobile:
+            s_st_clean = s_st.replace("mobile", "").strip()
+            q_st_clean = q_st.replace("mobile", "").strip()
+            st_match = (
+                (s_st_clean == q_st_clean)
+                or (s_st_clean in q_st_clean)
+                or (q_st_clean in s_st_clean)
+            )
+            if not st_match:
+                cs_s = self._classify_station_code(s_st_clean)
+                cs_q = self._classify_station_code(q_st_clean)
+                st_match = bool(cs_s and cs_q and cs_s.lower() == cs_q.lower())
+            if not st_match:
+                return False
+
+            s_slot = "mobile_2" if ("2" in s_bd or "two" in s_bd or "shift b" in s_bd or "night" in s_bd) else "mobile_1"
+            q_slot = "mobile_2" if ("2" in q_bd or "two" in q_bd or "shift b" in q_bd or "night" in q_bd) else "mobile_1"
             return s_slot == q_slot
         else:
+            st_match = (s_st == q_st) or (s_st in q_st) or (q_st in s_st)
+            if not st_match:
+                cs_s = self._classify_station_code(s_st)
+                cs_q = self._classify_station_code(q_st)
+                st_match = bool(cs_s and cs_q and cs_s.lower() == cs_q.lower())
+            if not st_match:
+                return False
+
+            if s_bd == q_bd:
+                return True
+
             st_code = self._classify_station_code(q_st) or self._classify_station_code(s_st)
             return self._is_bound_a(st_code, s_bd) == self._is_bound_a(st_code, q_bd)
 
@@ -595,8 +623,51 @@ class ReportSessionStore:
             changed = True
 
         if bound is not None and bound != session.bound:
-            session.bound = bound
-            changed = True
+            cur_st = (session.station or session.weighbridge_name or "").lower()
+            cur_bd = (session.bound or "").lower()
+            cur_is_mob = (
+                self._session_report_type(session) == "mobile_weighbridge"
+                or "mobile" in cur_st
+                or "mobile" in cur_bd
+                or cur_bd in ("mobile 1", "mobile 2", "mobile_1", "mobile_2", "shift a", "shift b")
+            )
+            new_is_mob = (
+                "mobile" in (station.lower() if station else cur_st)
+                or "mobile" in bound.lower()
+                or bound.lower() in ("mobile 1", "mobile 2", "mobile_1", "mobile_2", "shift a", "shift b")
+            )
+            if cur_is_mob != new_is_mob:
+                logger.warning(
+                    "Rejecting cross-type bound mutation for session %s: %s -> %s",
+                    report_id,
+                    session.bound,
+                    bound,
+                )
+            elif cur_is_mob:
+                cur_slot = "mobile_2" if ("2" in cur_bd or "two" in cur_bd or "shift b" in cur_bd or "night" in cur_bd) else "mobile_1"
+                new_slot = "mobile_2" if ("2" in bound.lower() or "two" in bound.lower() or "shift b" in bound.lower() or "night" in bound.lower()) else "mobile_1"
+                if cur_slot == new_slot:
+                    session.bound = bound
+                    changed = True
+                else:
+                    logger.warning(
+                        "Rejecting slot mutation for mobile session %s: %s -> %s",
+                        report_id,
+                        session.bound,
+                        bound,
+                    )
+            else:
+                st_code = self._classify_station_code(session.station or session.weighbridge_name)
+                if self._is_bound_a(st_code, cur_bd) == self._is_bound_a(st_code, bound):
+                    session.bound = bound
+                    changed = True
+                else:
+                    logger.warning(
+                        "Rejecting slot mutation for static session %s: %s -> %s",
+                        report_id,
+                        session.bound,
+                        bound,
+                    )
 
         if (
             weighbridge_name is not None

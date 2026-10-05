@@ -951,25 +951,34 @@ async def get_analytics_dashboard(
     }
     
     for s in sessions:
-        if s.sections.get("mobile_report", {}).get("status") == "ready":
-            st_code = classify_station(s.station or s.weighbridge_name)
-            s_station = st_code or (s.station or s.weighbridge_name or "").strip()
-            slot = mobile_report_slot(s.bound)
-            key = (s.report_date, s_station.lower(), slot)
-            modified_at = session_modified_at.get(s.report_id, 0)
-            previous = latest_mobile_sessions.get(key)
-            if previous is None or modified_at >= previous[1]:
-                latest_mobile_sessions[key] = (s, modified_at)
-            
-        if s.sections.get("daily_hour", {}).get("status") == "ready":
-            code = classify_station(s.station or s.weighbridge_name)
-            station_key = code or (s.station or s.weighbridge_name or "").strip().lower()
-            bound_key = static_bound_key(s)
-            modified_at = session_modified_at.get(s.report_id, 0)
-            key = (s.report_date, station_key, bound_key)
-            previous = latest_static_sessions.get(key)
-            if previous is None or modified_at >= previous[1]:
-                latest_static_sessions[key] = (s, modified_at)
+        s_is_mobile = (
+            report_session_store._session_report_type(s) == "mobile_weighbridge"
+            or "mobile" in (s.station or "").lower()
+            or "mobile" in (s.weighbridge_name or "").lower()
+            or "mobile" in (s.bound or "").lower()
+            or (s.bound or "").lower() in ("mobile 1", "mobile 2", "mobile_1", "mobile_2", "shift a", "shift b")
+        )
+
+        if s_is_mobile:
+            if s.sections.get("mobile_report", {}).get("status") == "ready":
+                st_code = classify_station(s.station or s.weighbridge_name)
+                s_station = st_code or (s.station or s.weighbridge_name or "").strip()
+                slot = mobile_report_slot(s.bound)
+                key = (s.report_date, s_station.lower(), slot)
+                modified_at = session_modified_at.get(s.report_id, 0)
+                previous = latest_mobile_sessions.get(key)
+                if previous is None or modified_at >= previous[1]:
+                    latest_mobile_sessions[key] = (s, modified_at)
+        else:
+            if s.sections.get("daily_hour", {}).get("status") == "ready":
+                code = classify_station(s.station or s.weighbridge_name)
+                station_key = code or (s.station or s.weighbridge_name or "").strip().lower()
+                bound_key = static_bound_key(s)
+                modified_at = session_modified_at.get(s.report_id, 0)
+                key = (s.report_date, station_key, bound_key)
+                previous = latest_static_sessions.get(key)
+                if previous is None or modified_at >= previous[1]:
+                    latest_static_sessions[key] = (s, modified_at)
 
     all_static_dates = sorted(
         {report_date for report_date, _, _ in latest_static_sessions},
@@ -1030,7 +1039,7 @@ async def get_analytics_dashboard(
             session_station = classify_station(s.station or s.weighbridge_name) or (s.station or s.weighbridge_name or "").strip()
             if target_station_norm and session_station.lower() != target_station_norm:
                 continue
-            if s.bound:
+            if s.bound and not ("mobile" in s.bound.lower()):
                 static_by_bound[bound_key]["label"] = s.bound
             add_static_kpis(static_by_bound[bound_key], s)
             add_static_kpis(static_by_bound["total"], s)
@@ -1041,12 +1050,24 @@ async def get_analytics_dashboard(
         if not static_by_bound["boundA"]["label"] or static_by_bound["boundA"]["label"] == "Bound A":
             static_by_bound["boundA"]["label"] = "Nairobi Bound"
 
-    is_juja = target_station_norm == "juja"
+    is_juja = target_station_norm == "juja" or (
+        not target_station_norm
+        and any(
+            "juja" in (s.station or s.weighbridge_name or "").lower()
+            for (r, _, _), (s, _) in latest_static_sessions.items()
+            if r == selected_static_date
+        )
+    )
     if is_juja:
-        if not static_by_bound["boundA"]["label"] or static_by_bound["boundA"]["label"].lower() in ("bound a", "thika bound", "thika"):
+        if not static_by_bound["boundA"]["label"] or static_by_bound["boundA"]["label"].lower() in ("bound a", "thika bound", "thika") or "mobile" in static_by_bound["boundA"]["label"].lower():
             static_by_bound["boundA"]["label"] = "Thika Bound"
-        if not static_by_bound["boundB"]["label"] or static_by_bound["boundB"]["label"].lower() in ("bound b", "nairobi bound", "nairobi"):
+        if not static_by_bound["boundB"]["label"] or static_by_bound["boundB"]["label"].lower() in ("bound b", "nairobi bound", "nairobi") or "mobile" in static_by_bound["boundB"]["label"].lower():
             static_by_bound["boundB"]["label"] = "Nairobi Bound"
+    else:
+        if "mobile" in static_by_bound["boundA"]["label"].lower():
+            static_by_bound["boundA"]["label"] = "Bound A"
+        if "mobile" in static_by_bound["boundB"]["label"].lower():
+            static_by_bound["boundB"]["label"] = "Bound B"
 
     # Filter mobile sessions to target station if provided
     filtered_mobile: list[tuple[str, str, str, ReportSession, float]] = []
