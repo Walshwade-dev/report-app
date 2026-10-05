@@ -266,7 +266,9 @@ class ReportSessionStore:
         # Restore dataframes from persisted records or previews if disk pickles are absent
         for section, s_state in session.sections.items():
             if section not in session.dataframes and isinstance(s_state, dict):
-                recs = s_state.get("records") or s_state.get("preview")
+                recs = s_state.get("records")
+                if not recs and section not in {"daily_hour"}:
+                    recs = s_state.get("preview")
                 if recs and isinstance(recs, list) and len(recs) > 0:
                     try:
                         df_restored = pd.DataFrame(recs)
@@ -1023,7 +1025,7 @@ class ReportSessionStore:
 
         # Store full records for essential analytics and cross-sectional sections in section_state
         # so they persist in PostgreSQL state_payload even when ephemeral disk is wiped
-        if section in {"mobile_report", "mobile_report_raw", "overloaded", "impounded_prohibited", "wideload"}:
+        if section in {"mobile_report", "mobile_report_raw", "overloaded", "impounded_prohibited", "wideload", "daily_hour"}:
             full_df = dataframe.astype(object).where(pd.notnull(dataframe), None)
             section_state["records"] = [
                 {

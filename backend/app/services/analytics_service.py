@@ -72,29 +72,25 @@ def _is_bound_a(station_code: str | None, bound_name: str | None) -> bool:
 
 
 def _daily_hour_total(session: ReportSession, column: str) -> int | None:
-    if "daily_hour" not in session.dataframes or session.sections.get("daily_hour", {}).get("status") != "ready":
-        sec = session.sections.get("daily_hour", {})
-        if isinstance(sec, dict) and "summary" in sec:
-            summary = sec["summary"]
-            if isinstance(summary, dict) and column in summary:
-                try:
-                    return int(summary[column])
-                except Exception:
-                    pass
-        return None
+    daily_df = session.dataframes.get("daily_hour")
+    if daily_df is not None and not daily_df.empty and "DATE" in daily_df.columns and column in daily_df.columns:
+        totals_mask = daily_df["DATE"].astype(str).str.strip().str.lower().eq("totals")
+        if totals_mask.any():
+            try:
+                return int(daily_df.loc[totals_mask].iloc[-1].get(column, 0))
+            except Exception:
+                pass
 
-    daily_df = session.dataframes["daily_hour"]
-    if "DATE" not in daily_df.columns or column not in daily_df.columns:
-        return None
+    sec = session.sections.get("daily_hour", {})
+    if isinstance(sec, dict) and "summary" in sec:
+        summary = sec["summary"]
+        if isinstance(summary, dict) and column in summary:
+            try:
+                return int(summary[column])
+            except Exception:
+                pass
 
-    totals_mask = daily_df["DATE"].astype(str).str.strip().str.lower().eq("totals")
-    if not totals_mask.any():
-        return None
-
-    try:
-        return int(daily_df.loc[totals_mask].iloc[-1].get(column, 0))
-    except Exception:
-        return None
+    return None
 
 
 def _clean_cargo_name(cargo_raw: Any) -> str:
