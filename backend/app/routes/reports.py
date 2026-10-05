@@ -1351,7 +1351,7 @@ async def get_dms_performance(date: str | None = None, station: str | None = Non
                         records = None
             if records is None or getattr(records, "empty", True):
                 sec = session.sections.get("mobile_report") or {}
-                recs = sec.get("records") or sec.get("preview")
+                recs = sec.get("records")
                 if recs and isinstance(recs, list) and len(recs) > 0:
                     try:
                         records = pd.DataFrame(recs)
