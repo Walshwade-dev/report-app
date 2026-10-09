@@ -21,6 +21,19 @@ STATION_NAMES = {
     "Suswa": "Suswa",
 }
 
+import re
+
+def _normalize_corridor(name: str) -> str:
+    if not name:
+        return ""
+    name = str(name).upper().strip()
+    name = re.sub(r'\s*(➔|->|\bTO\b|-)\s*', ' ➔ ', name)
+    name = re.sub(r'( ➔ )+', ' ➔ ', name)
+    parts = [p.strip() for p in name.split(' ➔ ') if p.strip()]
+    if len(parts) >= 2:
+        parts = sorted([parts[0], parts[-1]])
+        return f"{parts[0]} ➔ {parts[1]}"
+    return name
 
 def _classify_station(station_name: str | None) -> str | None:
     if not station_name:
@@ -410,6 +423,8 @@ def get_analytics_details(
                 except Exception:
                     df = None
 
+        patrol_route_name = _normalize_corridor(patrol_route_name)
+
         has_summary_counts = bool(
             mob_summary and (mob_summary.get("total_trucks_weighed") or mob_summary.get("total_records") or sec_mob.get("rows"))
         )
@@ -454,7 +469,6 @@ def get_analytics_details(
                 is_charged = "CHARG" in remarks or diff_kg > 2000
                 is_warned = "WARN" in remarks or (0 < diff_kg <= 2000)
 
-                # Only increment overall counters and patrol route counts if not already counted via summary
                 if not is_partial_data:
                     total_mobile_weighed += 1
                     if is_charged:
@@ -464,39 +478,36 @@ def get_analytics_details(
                     else:
                         total_mobile_legal += 1
 
-                    r_entry = route_aggregates[patrol_route_name]
-                    r_entry["route"] = patrol_route_name
-                    r_entry["routeType"] = "Patrol Operation"
+                # Gather routes for this vehicle to deduplicate
+                routes_for_vehicle = {}
+                if not is_partial_data:
+                    routes_for_vehicle[patrol_route_name] = "Patrol Operation"
+                
+                # Cargos charged for patrol route is handled inside the deduplication loop
+
+                corridor_name = ""
+                if origin and dest and origin not in ["UNKNOWN", "NAN"] and dest not in ["UNKNOWN", "NAN"]:
+                    corridor_name = _normalize_corridor(f"{origin} ➔ {dest}")
+                    if corridor_name not in routes_for_vehicle:
+                        routes_for_vehicle[corridor_name] = "Transport Corridor"
+                    else:
+                        # Prefer 'Patrol Operation' if it's the same route
+                        routes_for_vehicle[corridor_name] = "Patrol Operation"
+
+                for r_name, r_type in routes_for_vehicle.items():
+                    r_entry = route_aggregates[r_name]
+                    r_entry["route"] = r_name
+                    r_entry["routeType"] = r_type
                     r_entry["totalWeighed"] += 1
                     r_entry["datesActive"].add(rec_date)
                     if is_charged:
                         r_entry["chargedCount"] += 1
+                        if cargo_clean != "UNKNOWN":
+                            r_entry["cargosCharged"][cargo_clean] += 1
                     elif is_warned:
                         r_entry["warnedCount"] += 1
                     else:
                         r_entry["legalCount"] += 1
-
-                # Cargos charged for patrol route
-                if is_charged and cargo_clean != "UNKNOWN":
-                    r_entry = route_aggregates[patrol_route_name]
-                    r_entry["cargosCharged"][cargo_clean] += 1
-
-                # Specific vehicle corridor
-                if origin and dest and origin not in ["UNKNOWN", "NAN"] and dest not in ["UNKNOWN", "NAN"]:
-                    corridor_name = f"{origin} ➔ {dest}"
-                    c_entry = route_aggregates[corridor_name]
-                    c_entry["route"] = corridor_name
-                    c_entry["routeType"] = "Transport Corridor"
-                    c_entry["totalWeighed"] += 1
-                    c_entry["datesActive"].add(rec_date)
-                    if is_charged:
-                        c_entry["chargedCount"] += 1
-                        if cargo_clean != "UNKNOWN":
-                            c_entry["cargosCharged"][cargo_clean] += 1
-                    elif is_warned:
-                        c_entry["warnedCount"] += 1
-                    else:
-                        c_entry["legalCount"] += 1
 
                 if is_charged and cargo_clean != "UNKNOWN":
                     cargo_overload_counts[cargo_clean] += 1
@@ -591,6 +602,8 @@ def get_analytics_details(
                     axle_ov = float(row.get("AxleOverload") or 0)
                     status_raw = str(row.get("LastState") or row.get("Status") or row.get("state") or row.get("Vardict") or "Overloaded").strip()
                     st_eff = f"{status_raw} {row.get('Remarks', '')}".lower()
+                    
+                    static_total_gvw = float(row.get("TotalGVW") or row.get("GVW") or row.get("Total GVW") or row.get("ActualGVW") or 0)
 
                     is_static_charged = (
                         "charg" in st_eff
@@ -614,6 +627,7 @@ def get_analytics_details(
                         "station": s.station or s.weighbridge_name or "Static Weighbridge",
                         "bound": s.bound or "Static",
                         "cargo": cargo_clean,
+                        "totalGvwKg": static_total_gvw,
                         "gvwOverloadKg": gvw_ov,
                         "axleOverloadKg": axle_ov,
                         "status": status_raw,
@@ -674,6 +688,7 @@ def get_analytics_details(
                         "static": {
                             "station": sr["station"],
                             "bound": sr["bound"],
+                            "totalGvwKg": sr["totalGvwKg"],
                             "gvwOverloadKg": s_gvw,
                             "axleOverloadKg": s_axle,
                             "status": sr["status"],
