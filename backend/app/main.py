@@ -13,6 +13,7 @@ load_dotenv()
 from app.core.database import SessionLocal, is_database_configured
 from app.routes.reports import router as reports_router
 from app.routes.weekly_reports import router as weekly_reports_router
+from app.routes.monthly_reports import router as monthly_reports_router
 from app.routes.auth import router as auth_router, users_router
 from app.routes.mobile_checklist import router as mobile_checklist_router
 from app.services.report_session_store import report_session_store
@@ -63,7 +64,7 @@ _all_origins = list(dict.fromkeys([*_dev_origins, *_env_origins, *_default_produ
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_all_origins,
-    allow_origin_regex=r"https?://.*\.netlify\.app",
+    allow_origin_regex=r"https?://.*\.netlify\.app|http://(?:localhost|127\.0\.0\.1)(?::\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -150,6 +151,7 @@ async def persistence_health():
 
 app.include_router(reports_router, prefix="/api")
 app.include_router(weekly_reports_router, prefix="/api")
+app.include_router(monthly_reports_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
 app.include_router(mobile_checklist_router)
