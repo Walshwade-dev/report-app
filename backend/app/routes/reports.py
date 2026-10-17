@@ -688,6 +688,28 @@ def _mobile_session_sms_kpis(session: ReportSession | None) -> dict[str, int]:
     }
 
 
+def canonical_dm_name(raw_name: Any) -> str:
+    if not raw_name:
+        return ""
+    clean = re.sub(r"\s+", " ", str(raw_name)).strip().upper()
+    clean = re.sub(r"^(?:D\.?M\.?[:\s\-]*)", "", clean, flags=re.IGNORECASE).strip()
+    if clean.startswith("DM") and len(clean) > 2 and clean[2].isalpha():
+        clean = clean[2:].strip()
+    if not clean:
+        return ""
+    return f"DM {clean}"
+
+
+def canonical_driver_name(raw_name: Any) -> str:
+    if not raw_name:
+        return ""
+    clean = re.sub(r"\s+", " ", str(raw_name)).strip().upper()
+    clean = re.sub(r"^(?:DRIVER|DRV)[:\s\-]*", "", clean, flags=re.IGNORECASE).strip()
+    if not clean:
+        return ""
+    return f"DRIVER {clean}"
+
+
 def parse_danka_team(staff_value: Any) -> dict | None:
     if staff_value is None:
         return None
@@ -702,13 +724,18 @@ def parse_danka_team(staff_value: Any) -> dict | None:
     if not names:
         return None
 
-    dm_name = next((name for name in names if "DM" in name.split()), names[0])
-    drivers = [name for name in names if name != dm_name]
+    dm_raw = next(
+        (name for name in names if "DM" in name.split() or name.startswith("DM") or "D.M." in name),
+        names[0],
+    )
+    dm_name = canonical_dm_name(dm_raw)
+    raw_drivers = [name for name in names if name != dm_raw]
+    drivers = [canonical_driver_name(d) for d in raw_drivers if d]
 
     return {
         "dm": dm_name,
         "drivers": drivers,
-        "team": " / ".join([dm_name, *drivers]),
+        "team": " / ".join([dm_name, *drivers]) if dm_name else " / ".join(drivers),
     }
 
 
@@ -1415,7 +1442,7 @@ async def get_dms_performance(date: str | None = None, station: str | None = Non
         for idx, team in enumerate(shift_teams):
             if not team:
                 continue
-            dm_name = team["dm"]
+            dm_name = canonical_dm_name(team["dm"])
             row = stats.setdefault(
                 dm_name,
                 {
@@ -1430,8 +1457,9 @@ async def get_dms_performance(date: str | None = None, station: str | None = Non
                 },
             )
             for driver in team["drivers"]:
-                if driver not in row["drivers"]:
-                    row["drivers"].append(driver)
+                driver_canonical = canonical_driver_name(driver)
+                if driver_canonical and driver_canonical not in row["drivers"]:
+                    row["drivers"].append(driver_canonical)
             row["team"] = " / ".join([dm_name, *row["drivers"]])
             row["weighed"] += shift_weighed[idx] if idx < len(shift_weighed) else 0
             row["charged"] += shift_charged[idx] if idx < len(shift_charged) else 0
