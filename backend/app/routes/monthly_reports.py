@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import decode_access_token
 from app.db.models import User
+from app.services.monthly_juja_cluster_report_builder import build_monthly_juja_cluster_excel_report
 from app.services.monthly_mobile_report_builder import build_monthly_mobile_excel_report
 
 
@@ -96,7 +97,8 @@ async def generate_monthly_report(
     if auth_user and auth_user.role != "admin":
         assigned_station = resolve_user_station(auth_user)
         if assigned_station:
-            req_clean = re.sub(r"[^a-z0-9]", "", station.lower()).replace("mobile", "")
+            req_station = "juja" if report_type == "juja_cluster_invoicing" else station
+            req_clean = re.sub(r"[^a-z0-9]", "", req_station.lower()).replace("mobile", "")
             assigned_clean = re.sub(r"[^a-z0-9]", "", assigned_station.lower()).replace("mobile", "")
             if req_clean != assigned_clean and assigned_clean not in req_clean:
                 raise HTTPException(
@@ -115,8 +117,16 @@ async def generate_monthly_report(
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+    elif report_type == "juja_cluster_invoicing":
+        buffer = build_monthly_juja_cluster_excel_report(year, month)
+        filename = f"Monthly JUJA Cluster Invoicing Report {month_name.upper()} {year}.xlsx"
+        return Response(
+            content=buffer.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
     else:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported report type: {report_type}. Supported types: 'mobile_summary'."
+            detail=f"Unsupported report type: {report_type}. Supported types: 'mobile_summary', 'juja_cluster_invoicing'."
         )
