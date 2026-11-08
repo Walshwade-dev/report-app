@@ -84,7 +84,7 @@ def get_report_date_parts(date_str):
         day = dt.day
         suffix = "th" if 11 <= day <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
         day_str = str(day)
-        month_year_str = dt.strftime(" %B %Y")
+        month_year_str = dt.strftime(" %B %Y").upper()
         return day_str, suffix, month_year_str
     except Exception:
         return date_str, "", ""

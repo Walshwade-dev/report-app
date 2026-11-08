@@ -262,6 +262,15 @@ def add_daily_hour_statistics_section(doc: Document, daily_df: pd.DataFrame):
 
             if pd.isna(value):
                 text = ""
+            elif is_total_row and i >= 2:
+                try:
+                    num_val = float(value)
+                    if num_val.is_integer():
+                        text = f"{int(num_val):,}"
+                    else:
+                        text = f"{num_val:,}"
+                except (ValueError, TypeError):
+                    text = str(value)
             elif isinstance(value, float) and value.is_integer():
                 text = str(int(value))
             else:
